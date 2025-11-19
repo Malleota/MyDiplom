@@ -178,14 +178,21 @@ class GreenhouseListViewModel: ObservableObject {
     
     func getSensorDataForGreenhouse(_ greenhouse: GreenhouseOut, bleManager: BLEManager) -> SensorReadingOut? {
         // Сначала проверяем, подключен ли датчик через BLE
-        if let connectedDevice = bleManager.lastConnectedDevice,
-           let bleSensorData = bleManager.sensors[connectedDevice.id] {
-            // Проверяем, совпадает ли UUID подключенного устройства с ble_identifier датчика
-            // При привязке мы использовали device.id.uuidString как ble_identifier
-            let connectedDeviceUUID = connectedDevice.id.uuidString
-            
-            // Если устройство подключено, используем данные из BLE
-            print("📡 Используем данные из BLE для теплицы \(greenhouse.name)")
+        guard let connectedDevice = bleManager.lastConnectedDevice,
+              let bleSensorData = bleManager.sensors[connectedDevice.id] else {
+            // Если не подключен через BLE, используем данные с сервера
+            return sensorData[greenhouse.id]
+        }
+        
+        // Проверяем, совпадает ли UUID подключенного устройства с ble_identifier датчика этой теплицы
+        let connectedDeviceUUID = connectedDevice.id.uuidString
+        
+        // Получаем сохраненный ble_identifier для этой теплицы
+        let savedBLEIdentifier = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+        
+        // Если есть сохраненный ble_identifier и он совпадает с подключенным устройством
+        if let savedBLE = savedBLEIdentifier, savedBLE == connectedDeviceUUID {
+            print("📡 Используем данные из BLE для теплицы \(greenhouse.name) (совпадение по ble_identifier)")
             return SensorReadingOut(
                 id: "",
                 sensor_id: greenhouse.sensor_id ?? "",
@@ -196,8 +203,22 @@ class GreenhouseListViewModel: ObservableObject {
             )
         }
         
-        // Если не подключен через BLE, используем данные с сервера
-        return sensorData[greenhouse.id]
+        // Если нет сохраненного ble_identifier, но устройство подключено и у теплицы есть sensor_id
+        // Предполагаем, что это тот же датчик (для обратной совместимости)
+        if savedBLEIdentifier == nil && greenhouse.sensor_id != nil {
+            print("📡 Используем данные из BLE для теплицы \(greenhouse.name) (нет сохраненного ble_identifier)")
+            return SensorReadingOut(
+                id: "",
+                sensor_id: greenhouse.sensor_id ?? "",
+                greenhouse_id: greenhouse.id,
+                temperature: bleSensorData.temperature,
+                humidity: bleSensorData.humidity,
+                created_at: ISO8601DateFormatter().string(from: Date())
+            )
+        }
+        
+        // Если ble_identifier не совпадает, не показываем данные
+        return nil
     }
 }
 
@@ -458,16 +479,41 @@ struct GreenhouseDetailView: View {
             return
         }
         
-        // Используем данные из BLE
-        print("📡 updateSensorDataFromBLE: Обновляем данные из BLE для теплицы \(greenhouse.name)")
-        sensorData = SensorReadingOut(
-            id: "",
-            sensor_id: greenhouse.sensor_id ?? "",
-            greenhouse_id: greenhouse.id,
-            temperature: bleSensorData.temperature,
-            humidity: bleSensorData.humidity,
-            created_at: ISO8601DateFormatter().string(from: Date())
-        )
+        // Проверяем, совпадает ли UUID подключенного устройства с ble_identifier датчика этой теплицы
+        let connectedDeviceUUID = connectedDevice.id.uuidString
+        
+        // Получаем сохраненный ble_identifier для этой теплицы
+        let savedBLEIdentifier = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+        
+        // Если есть сохраненный ble_identifier и он совпадает с подключенным устройством
+        if let savedBLE = savedBLEIdentifier, savedBLE == connectedDeviceUUID {
+            // Используем данные из BLE
+            print("📡 updateSensorDataFromBLE: Обновляем данные из BLE для теплицы \(greenhouse.name) (совпадение по ble_identifier)")
+            sensorData = SensorReadingOut(
+                id: "",
+                sensor_id: greenhouse.sensor_id ?? "",
+                greenhouse_id: greenhouse.id,
+                temperature: bleSensorData.temperature,
+                humidity: bleSensorData.humidity,
+                created_at: ISO8601DateFormatter().string(from: Date())
+            )
+        } else if savedBLEIdentifier == nil {
+            // Если нет сохраненного ble_identifier, но устройство подключено
+            // Предполагаем, что это тот же датчик (для обратной совместимости)
+            print("📡 updateSensorDataFromBLE: Обновляем данные из BLE для теплицы \(greenhouse.name) (нет сохраненного ble_identifier)")
+            sensorData = SensorReadingOut(
+                id: "",
+                sensor_id: greenhouse.sensor_id ?? "",
+                greenhouse_id: greenhouse.id,
+                temperature: bleSensorData.temperature,
+                humidity: bleSensorData.humidity,
+                created_at: ISO8601DateFormatter().string(from: Date())
+            )
+        } else {
+            // Если ble_identifier не совпадает, очищаем данные
+            print("⚠️ updateSensorDataFromBLE: UUID не совпадает для теплицы \(greenhouse.name) (saved: \(savedBLEIdentifier ?? "nil"), connected: \(connectedDeviceUUID))")
+            sensorData = nil
+        }
     }
     
     private func bindDeviceToGreenhouse(_ device: DiscoveredDevice) async {
@@ -489,6 +535,11 @@ struct GreenhouseDetailView: View {
             )
             
             print("Датчик успешно привязан к теплице")
+            
+            // Сохраняем соответствие между теплицей и ble_identifier
+            let bleIdentifier = device.id.uuidString
+            UserDefaults.standard.set(bleIdentifier, forKey: "greenhouse_\(greenhouseId)_ble_identifier")
+            print("💾 Сохранено соответствие: greenhouse_\(greenhouseId) -> \(bleIdentifier)")
             
             // Подключаемся к устройству через BLE
             print("Подключение к устройству через BLE...")
