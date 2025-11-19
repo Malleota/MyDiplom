@@ -9,9 +9,15 @@ import SwiftUI
 
 @main
 struct MyDiplomApp: App {
+    @StateObject private var authManager = AuthManager.shared
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if authManager.isAuthenticated {
+                ContentView()
+            } else {
+                LoginView()
+            }
         }
     }
 }
