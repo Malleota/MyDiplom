@@ -13,6 +13,7 @@ class AuthManager: ObservableObject {
     
     @Published var isAuthenticated = false
     @Published var accessToken: String?
+    @Published var currentUser: UserOut?
     
     private let tokenKey = "AccessToken"
     
@@ -21,6 +22,10 @@ class AuthManager: ObservableObject {
         if let token = UserDefaults.standard.string(forKey: tokenKey), !token.isEmpty {
             accessToken = token
             isAuthenticated = true
+            // Загружаем данные пользователя
+            Task {
+                await loadUserData()
+            }
         }
     }
     
@@ -28,12 +33,30 @@ class AuthManager: ObservableObject {
         accessToken = token
         isAuthenticated = true
         UserDefaults.standard.set(token, forKey: tokenKey)
+        Task {
+            await loadUserData()
+        }
     }
     
     func logout() {
         accessToken = nil
         isAuthenticated = false
+        currentUser = nil
         UserDefaults.standard.removeObject(forKey: tokenKey)
+    }
+    
+    @MainActor
+    func loadUserData() async {
+        do {
+            currentUser = try await APIService.shared.getCurrentUser()
+        } catch {
+            print("Failed to load user data: \(error)")
+        }
+    }
+    
+    @MainActor
+    func updateUser(_ user: UserOut) {
+        currentUser = user
     }
 }
 

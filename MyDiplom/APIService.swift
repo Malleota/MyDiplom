@@ -98,5 +98,106 @@ class APIService {
             throw APIError(detail: "Ошибка сервера")
         }
     }
+    
+    // MARK: - User
+    
+    /// Получить информацию о текущем пользователе
+    func getCurrentUser() async throws -> UserOut {
+        guard let token = AuthManager.shared.accessToken else {
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/me")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            return try decoder.decode(UserOut.self, from: data)
+        } else if httpResponse.statusCode == 401 {
+            throw APIError(detail: "Не авторизован")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
+    
+    // MARK: - Avatars
+    
+    /// Получить список доступных аватаров
+    func getAvatars() async throws -> [AvatarOut] {
+        let url = URL(string: "\(baseURL)/avatars")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            return try decoder.decode([AvatarOut].self, from: data)
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
+    
+    /// Обновить аватар текущего пользователя
+    func updateAvatar(avatarId: String) async throws -> UserOut {
+        guard let token = AuthManager.shared.accessToken else {
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/me/avatar")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let avatarUpdate = AvatarUpdate(avatar_id: avatarId)
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(avatarUpdate)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            return try decoder.decode(UserOut.self, from: data)
+        } else if httpResponse.statusCode == 401 {
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 404 {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Аватарка не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
 }
 

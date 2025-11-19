@@ -38,6 +38,20 @@ struct UserOut: Codable {
     let name: String
     let role: String
     let is_active: Bool
+    let avatar_id: String?
+    let avatar_url: String?  // Полный URL аватара
     let created_at: String
+}
+
+// MARK: - Avatar Models
+
+struct AvatarOut: Codable, Identifiable {
+    let id: String
+    let image_url: String
+    let name: String
+}
+
+struct AvatarUpdate: Codable {
+    let avatar_id: String
 }
 

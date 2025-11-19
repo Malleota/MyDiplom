@@ -1,11 +1,20 @@
+import os
+import random
+import shutil
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import text
 
-from .config import JWT_ACCESS_TOKEN_EXPIRE_MINUTES, engine, logger
+from .config import (
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
+    PLANT_TYPES_DIR,
+    engine,
+    get_full_static_url,
+    logger,
+)
 from .dependencies import (
     create_access_token,
     get_current_user,
@@ -18,9 +27,12 @@ from .dependencies import (
 )
 from .schemas import (
     AlertOut,
+    AvatarOut,
+    AvatarUpdate,
     BindSensorIn,
     BindWorkerIn,
     GreenhouseCreate,
+    GreenhouseImageOut,
     GreenhouseOut,
     PlantInstanceCreate,
     PlantInstanceOut,
@@ -37,6 +49,23 @@ from .schemas import (
 )
 
 router = APIRouter()
+
+
+def enrich_user_with_avatar_url(user_data: dict, conn) -> dict:
+    """Добавляет avatar_url в данные пользователя на основе avatar_id."""
+    user_dict = dict(user_data)
+    if user_dict.get("avatar_id"):
+        avatar = conn.execute(
+            text("SELECT image_url FROM avatars WHERE id=:id"),
+            {"id": user_dict["avatar_id"]},
+        ).mappings().first()
+        if avatar and avatar["image_url"]:
+            user_dict["avatar_url"] = get_full_static_url(avatar["image_url"])
+        else:
+            user_dict["avatar_url"] = None
+    else:
+        user_dict["avatar_url"] = None
+    return user_dict
 
 
 @router.get("/health")
@@ -64,13 +93,27 @@ def register(payload: UserRegister):
                 detail="Пользователь с таким email уже существует",
             )
 
+        # Получаем случайную аватарку
+        avatars = conn.execute(
+            text("SELECT id FROM avatars")
+        ).fetchall()
+        
+        if not avatars:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Нет доступных аватарок",
+            )
+        
+        random_avatar = random.choice(avatars)
+        avatar_id = random_avatar[0]
+
         password_hash = get_password_hash(payload.password)
 
         conn.execute(
             text(
                 """
-            INSERT INTO users (id, email, password_hash, name, role, is_active)
-            VALUES (:id, :email, :pwd, :name, :role, 1)
+            INSERT INTO users (id, email, password_hash, name, role, avatar_id, is_active)
+            VALUES (:id, :email, :pwd, :name, :role, :avatar_id, 1)
         """
             ),
             {
@@ -79,6 +122,7 @@ def register(payload: UserRegister):
                 "pwd": password_hash,
                 "name": payload.name,
                 "role": payload.role,
+                "avatar_id": avatar_id,
             },
         )
 
@@ -86,7 +130,7 @@ def register(payload: UserRegister):
             conn.execute(
                 text(
                     """
-            SELECT id, email, name, role, is_active, created_at
+            SELECT id, email, name, role, is_active, avatar_id, created_at
             FROM users WHERE id=:id
         """
                 ),
@@ -95,9 +139,12 @@ def register(payload: UserRegister):
             .mappings()
             .first()
         )
+        
+        # Добавляем avatar_url
+        user_data = enrich_user_with_avatar_url(row, conn)
 
     logger.info("Зарегистрирован новый пользователь: %s (ID: %s)", payload.email, user_id)
-    return UserOut(**row)
+    return UserOut(**user_data)
 
 
 @router.post("/login", response_model=Token)
@@ -151,7 +198,69 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
 @router.get("/me", response_model=UserOut)
 def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Получить информацию о текущем авторизованном пользователе."""
-    return UserOut(**current_user)
+    with engine.connect() as conn:
+        user_data = enrich_user_with_avatar_url(current_user, conn)
+    return UserOut(**user_data)
+
+
+@router.patch("/me/avatar", response_model=UserOut)
+def update_avatar(payload: AvatarUpdate, current_user: dict = Depends(get_current_user)):
+    """Смена аватарки текущего пользователя."""
+    with engine.begin() as conn:
+        # Проверяем, что аватарка существует
+        avatar_exists = conn.execute(
+            text("SELECT 1 FROM avatars WHERE id=:id"),
+            {"id": payload.avatar_id},
+        ).scalar()
+        
+        if not avatar_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Аватарка не найдена",
+            )
+        
+        # Обновляем аватарку пользователя
+        conn.execute(
+            text("UPDATE users SET avatar_id=:avatar_id WHERE id=:user_id"),
+            {"avatar_id": payload.avatar_id, "user_id": current_user["id"]},
+        )
+        
+        # Получаем обновленного пользователя
+        row = (
+            conn.execute(
+                text(
+                    """
+            SELECT id, email, name, role, is_active, avatar_id, created_at
+            FROM users WHERE id=:id
+        """
+                ),
+                {"id": current_user["id"]},
+            )
+            .mappings()
+            .first()
+        )
+        
+        # Добавляем avatar_url
+        user_data = enrich_user_with_avatar_url(row, conn)
+    
+    logger.info("Пользователь %s сменил аватарку на %s", current_user["id"], payload.avatar_id)
+    return UserOut(**user_data)
+
+
+@router.get("/avatars", response_model=List[AvatarOut])
+def list_avatars():
+    """Получение списка доступных аватарок."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT id, image_url, name FROM avatars ORDER BY name ASC")
+        ).mappings().all()
+        result = []
+        for r in rows:
+            avatar_data = dict(r)
+            # Формируем полный URL
+            avatar_data["image_url"] = get_full_static_url(avatar_data["image_url"])
+            result.append(AvatarOut(**avatar_data))
+        return result
 
 
 # --- Users (Admin only) ---
@@ -165,7 +274,7 @@ def update_user_role(
             conn.execute(
                 text(
                     """
-            SELECT id, email, name, role, is_active, created_at
+            SELECT id, email, name, role, is_active, avatar_id, created_at
             FROM users WHERE id=:id
         """
                 ),
@@ -191,7 +300,7 @@ def update_user_role(
             conn.execute(
                 text(
                     """
-            SELECT id, email, name, role, is_active, created_at
+            SELECT id, email, name, role, is_active, avatar_id, created_at
             FROM users WHERE id=:id
         """
                 ),
@@ -200,6 +309,9 @@ def update_user_role(
             .mappings()
             .first()
         )
+        
+        # Добавляем avatar_url
+        user_data = enrich_user_with_avatar_url(updated_user, conn)
 
     logger.info(
         "Роль пользователя %s изменена на %s администратором %s",
@@ -207,17 +319,27 @@ def update_user_role(
         payload.role,
         admin["id"],
     )
-    return UserOut(**updated_user)
+    return UserOut(**user_data)
 
 
 # --- Greenhouses ---
+@router.get("/greenhouse-images", response_model=List[GreenhouseImageOut])
+def list_greenhouse_images():
+    """Получение списка доступных изображений для теплиц."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT id, image_url, name FROM greenhouse_images ORDER BY name ASC")
+        ).mappings().all()
+        return [GreenhouseImageOut(**r) for r in rows]
+
+
 @router.get("/greenhouses", response_model=List[GreenhouseOut])
 def list_greenhouses(current_user: dict = Depends(get_current_user)):
     """Получение списка теплиц. Админ видит все, рабочий - только привязанные."""
     with engine.connect() as conn:
         if current_user["role"] == "admin":
             sql = """
-                SELECT id, name, description, sensor_id,
+                SELECT id, name, description, image_url, sensor_id,
                        target_temp_min, target_temp_max,
                        target_hum_min, target_hum_max, created_at
                 FROM greenhouses
@@ -226,7 +348,7 @@ def list_greenhouses(current_user: dict = Depends(get_current_user)):
             rows = conn.execute(text(sql)).mappings().all()
         else:
             sql = """
-                SELECT g.id, g.name, g.description, g.sensor_id,
+                SELECT g.id, g.name, g.description, g.image_url, g.sensor_id,
                        g.target_temp_min, g.target_temp_max,
                        g.target_hum_min, g.target_hum_max, g.created_at
                 FROM greenhouses g
@@ -236,29 +358,49 @@ def list_greenhouses(current_user: dict = Depends(get_current_user)):
             """
             rows = conn.execute(text(sql), {"user_id": current_user["id"]}).mappings().all()
 
-        return [GreenhouseOut(**r) for r in rows]
+        result = []
+        for r in rows:
+            gh_data = dict(r)
+            # Формируем полный URL для изображения
+            gh_data["image_url"] = get_full_static_url(gh_data["image_url"])
+            result.append(GreenhouseOut(**gh_data))
+        return result
 
 
 @router.post("/greenhouses", response_model=GreenhouseOut, status_code=201)
 def create_greenhouse(payload: GreenhouseCreate, admin: dict = Depends(require_admin)):
     """Создание теплицы. Доступ: admin."""
     gh_id = new_id()
+    
     sql = """
     INSERT INTO greenhouses
-      (id, name, description,
+      (id, name, description, image_url,
        target_temp_min, target_temp_max,
        target_hum_min, target_hum_max)
     VALUES
-      (:id, :name, :description,
+      (:id, :name, :description, :img_url,
        :tmin, :tmax, :hmin, :hmax)
     """
     with engine.begin() as conn:
+        # Проверяем, что выбранное изображение существует (если указано)
+        if payload.image_url:
+            image_exists = conn.execute(
+                text("SELECT 1 FROM greenhouse_images WHERE image_url=:url"),
+                {"url": payload.image_url},
+            ).scalar()
+            if not image_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Выбранное изображение не найдено в списке доступных",
+                )
+        
         conn.execute(
             text(sql),
             {
                 "id": gh_id,
                 "name": payload.name,
                 "description": payload.description,
+                "img_url": payload.image_url,
                 "tmin": payload.target_temp_min,
                 "tmax": payload.target_temp_max,
                 "hmin": payload.target_hum_min,
@@ -269,7 +411,7 @@ def create_greenhouse(payload: GreenhouseCreate, admin: dict = Depends(require_a
             conn.execute(
                 text(
                     """
-            SELECT id, name, description, sensor_id,
+            SELECT id, name, description, image_url, sensor_id,
                    target_temp_min, target_temp_max,
                    target_hum_min, target_hum_max, created_at
             FROM greenhouses WHERE id=:id
@@ -280,7 +422,12 @@ def create_greenhouse(payload: GreenhouseCreate, admin: dict = Depends(require_a
             .mappings()
             .first()
         )
-    return GreenhouseOut(**row)
+        
+        # Формируем полный URL для изображения
+        gh_data = dict(row)
+        gh_data["image_url"] = get_full_static_url(gh_data["image_url"])
+    
+    return GreenhouseOut(**gh_data)
 
 
 @router.get("/greenhouses/{gh_id}", response_model=GreenhouseOut)
@@ -304,7 +451,7 @@ def get_greenhouse(gh_id: str, current_user: dict = Depends(get_current_user)):
             conn.execute(
                 text(
                     """
-            SELECT id, name, description, sensor_id,
+            SELECT id, name, description, image_url, sensor_id,
                    target_temp_min, target_temp_max,
                    target_hum_min, target_hum_max, created_at
             FROM greenhouses WHERE id=:id
@@ -316,7 +463,12 @@ def get_greenhouse(gh_id: str, current_user: dict = Depends(get_current_user)):
             .first()
         )
         one_or_404(row, "Greenhouse not found")
-        return GreenhouseOut(**row)
+        
+        # Формируем полный URL для изображения
+        gh_data = dict(row)
+        gh_data["image_url"] = get_full_static_url(gh_data["image_url"])
+        
+        return GreenhouseOut(**gh_data)
 
 
 @router.delete("/greenhouses/{gh_id}", status_code=204)
@@ -430,13 +582,58 @@ def list_plant_types(current_user: dict = Depends(get_current_user)):
         rows = conn.execute(
             text(
                 """
-            SELECT id, name, description, temp_min, temp_max,
+            SELECT id, name, description, image_url, temp_min, temp_max,
                    humidity_min, humidity_max, watering_interval_days, fertilizing_interval_days
             FROM plant_types ORDER BY name ASC
         """
             )
         ).mappings().all()
-        return [PlantTypeOut(**r) for r in rows]
+        result = []
+        for r in rows:
+            plant_data = dict(r)
+            # Формируем полный URL для изображения
+            plant_data["image_url"] = get_full_static_url(plant_data["image_url"])
+            result.append(PlantTypeOut(**plant_data))
+        return result
+
+
+@router.post("/plant-types/upload-image", status_code=200)
+async def upload_plant_image(
+    file: UploadFile = File(...),
+    admin: dict = Depends(require_admin),
+):
+    """Загрузка изображения для растения. Доступ: admin."""
+    # Проверяем расширение файла
+    allowed_extensions = {".jpg", ".jpeg", ".png", ".webp"}
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Недопустимый формат файла. Разрешены: {', '.join(allowed_extensions)}",
+        )
+    
+    # Генерируем уникальное имя файла
+    file_id = new_id()
+    filename = f"{file_id}{file_ext}"
+    file_path = os.path.join(PLANT_TYPES_DIR, filename)
+    
+    # Сохраняем файл
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении файла: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ошибка при сохранении файла",
+        )
+    
+    # Возвращаем полный URL для использования
+    relative_url = f"/static/plant-types/{filename}"
+    image_url = get_full_static_url(relative_url)
+    logger.info("Загружено изображение растения: %s", filename)
+    return {"image_url": image_url, "filename": filename}
 
 
 @router.post("/plant-types", response_model=PlantTypeOut, status_code=201)
@@ -448,16 +645,17 @@ def create_plant_type(payload: PlantTypeCreate, admin: dict = Depends(require_ad
             text(
                 """
             INSERT INTO plant_types
-              (id, name, description, temp_min, temp_max,
+              (id, name, description, image_url, temp_min, temp_max,
                humidity_min, humidity_max, watering_interval_days, fertilizing_interval_days)
             VALUES
-              (:id, :name, :description, :tmin, :tmax, :hmin, :hmax, :wi, :fi)
+              (:id, :name, :description, :img_url, :tmin, :tmax, :hmin, :hmax, :wi, :fi)
         """
             ),
             {
                 "id": pt_id,
                 "name": payload.name,
                 "description": payload.description,
+                "img_url": payload.image_url,
                 "tmin": payload.temp_min,
                 "tmax": payload.temp_max,
                 "hmin": payload.humidity_min,
@@ -470,7 +668,7 @@ def create_plant_type(payload: PlantTypeCreate, admin: dict = Depends(require_ad
             conn.execute(
                 text(
                     """
-            SELECT id, name, description, temp_min, temp_max,
+            SELECT id, name, description, image_url, temp_min, temp_max,
                    humidity_min, humidity_max, watering_interval_days, fertilizing_interval_days
             FROM plant_types WHERE id=:id
         """
@@ -480,8 +678,13 @@ def create_plant_type(payload: PlantTypeCreate, admin: dict = Depends(require_ad
             .mappings()
             .first()
         )
+        
+        # Формируем полный URL для изображения
+        plant_data = dict(row)
+        plant_data["image_url"] = get_full_static_url(plant_data["image_url"])
+    
     logger.info("Тип растения %s добавлен в справочник", payload.name)
-    return PlantTypeOut(**row)
+    return PlantTypeOut(**plant_data)
 
 
 @router.delete("/plant-types/{pt_id}", status_code=204)
@@ -607,7 +810,7 @@ def list_watering_events(
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = f"""
-        SELECT we.id, we.greenhouse_id, we.user_id, we.plant_instance_id, 
+        SELECT we.id, we.greenhouse_id, we.user_id, we.plant_instance_id,
                we.type, we.created_at, we.comment
         FROM watering_events we
         {where}
@@ -657,7 +860,7 @@ def get_reports(
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = f"""
-        SELECT 
+        SELECT
             we.id as event_id,
             we.user_id,
             u.email as user_email,
@@ -956,7 +1159,7 @@ def check_watering_schedules():
         overdue_plants = conn.execute(
             text(
                 """
-            SELECT 
+            SELECT
                 pi.id as plant_instance_id,
                 pi.greenhouse_id,
                 g.name as greenhouse_name,
@@ -966,12 +1169,12 @@ def check_watering_schedules():
             FROM plant_instances pi
             INNER JOIN greenhouses g ON pi.greenhouse_id = g.id
             INNER JOIN plant_types pt ON pi.plant_type_id = pt.id
-            LEFT JOIN watering_events we ON we.plant_instance_id = pi.id 
+            LEFT JOIN watering_events we ON we.plant_instance_id = pi.id
                 AND we.type = 'watering'
             WHERE pt.watering_interval_days IS NOT NULL
             GROUP BY pi.id, pi.greenhouse_id, g.name, pt.name, pt.watering_interval_days
-            HAVING 
-                last_watering IS NULL 
+            HAVING
+                last_watering IS NULL
                 OR datetime(last_watering, '+' || pt.watering_interval_days || ' days') < datetime('now')
         """
             )
@@ -1042,7 +1245,7 @@ def check_watering_schedules():
         overdue_fertilizing = conn.execute(
             text(
                 """
-            SELECT 
+            SELECT
                 pi.id as plant_instance_id,
                 pi.greenhouse_id,
                 g.name as greenhouse_name,
@@ -1052,12 +1255,12 @@ def check_watering_schedules():
             FROM plant_instances pi
             INNER JOIN greenhouses g ON pi.greenhouse_id = g.id
             INNER JOIN plant_types pt ON pi.plant_type_id = pt.id
-            LEFT JOIN watering_events we ON we.plant_instance_id = pi.id 
+            LEFT JOIN watering_events we ON we.plant_instance_id = pi.id
                 AND we.type = 'fertilizing'
             WHERE pt.fertilizing_interval_days IS NOT NULL
             GROUP BY pi.id, pi.greenhouse_id, g.name, pt.name, pt.fertilizing_interval_days
-            HAVING 
-                last_fertilizing IS NULL 
+            HAVING
+                last_fertilizing IS NULL
                 OR datetime(last_fertilizing, '+' || pt.fertilizing_interval_days || ' days') < datetime('now')
         """
             )

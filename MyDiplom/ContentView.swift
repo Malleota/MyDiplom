@@ -7,10 +7,41 @@ struct ContentView: View {
     @StateObject private var manager = BLEManager()
     @StateObject private var authManager = AuthManager.shared
     @State private var showDeviceList = false
+    @State private var showProfile = false
 
     var body: some View {
         NavigationView {
             VStack(spacing: 16) {
+                // Шапка с аватаром и приветствием
+                HStack(spacing: 8) {
+                    Button(action: {
+                        showProfile = true
+                    }) {
+                        if let avatarUrl = authManager.currentUser?.avatar_url,
+                           let url = URL(string: avatarUrl) {
+                            AsyncImage(url: url) { image in
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } placeholder: {
+                                ProgressView()
+                            }
+                            .frame(width: 48, height: 48)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        } else {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(width: 48, height: 48)
+                        }
+                    }
+                    
+                    Text("Привет, \(authManager.currentUser?.name ?? "Пользователь")!")
+                        .font(.headline)
+                    
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
 
                 // Состояние Bluetooth
                 switch manager.bluetoothState {
@@ -85,6 +116,20 @@ struct ContentView: View {
                 DeviceListView(manager: manager) { device in
                     manager.stopScan()
                     manager.connect(to: device)
+                }
+            }
+            .sheet(isPresented: $showProfile) {
+                ProfileView()
+                    .onDisappear {
+                        // Обновляем данные пользователя при закрытии профиля
+                        Task {
+                            await authManager.loadUserData()
+                        }
+                    }
+            }
+            .task {
+                if authManager.currentUser == nil {
+                    await authManager.loadUserData()
                 }
             }
         }
