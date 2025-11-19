@@ -15,73 +15,176 @@ struct ProfileView: View {
     @State private var selectedAvatarId: String?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var showLogoutAlert = false
     
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 32) {
-                    // Большой аватар
-                    if let selectedAvatar = avatars.first(where: { $0.id == selectedAvatarId }),
-                       let url = URL(string: selectedAvatar.image_url) {
-                        AsyncImage(url: url) { image in
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            ProgressView()
-                        }
-                        .frame(width: 176, height: 176)
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                    } else if let avatarUrl = authManager.currentUser?.avatar_url,
-                              let url = URL(string: avatarUrl) {
-                        AsyncImage(url: url) { image in
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            ProgressView()
-                        }
-                        .frame(width: 176, height: 176)
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                    } else {
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(width: 176, height: 176)
-                    }
-                    
-                    // Заголовок "Аватары"
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Аватары")
-                            .font(.system(size: 16, weight: .regular))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        
-                        // Сетка аватаров
-                        LazyVGrid(columns: [
-                            GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12)
-                        ], spacing: 12) {
-                            ForEach(avatars) { avatar in
-                                AvatarThumbnailView(
-                                    avatar: avatar,
-                                    isSelected: (selectedAvatarId ?? authManager.currentUser?.avatar_id) == avatar.id,
-                                    onTap: {
-                                        selectedAvatarId = avatar.id
-                                        updateAvatar(avatarId: avatar.id)
-                                    }
-                                )
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Большой аватар
+                        if let selectedAvatar = avatars.first(where: { $0.id == selectedAvatarId }),
+                           let url = URL(string: selectedAvatar.image_url) {
+                            AsyncImage(url: url) { image in
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } placeholder: {
+                                ProgressView()
                             }
+                            .frame(width: 176, height: 176)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                        } else if let avatarUrl = authManager.currentUser?.avatar_url,
+                                  let url = URL(string: avatarUrl) {
+                            AsyncImage(url: url) { image in
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } placeholder: {
+                                ProgressView()
+                            }
+                            .frame(width: 176, height: 176)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                        } else {
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(width: 176, height: 176)
                         }
+                        
+                        // Заголовок "Аватары"
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Аватары")
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                               
+                            
+                            // Сетка аватаров
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(avatars) { avatar in
+                                        AvatarThumbnailView(
+                                            avatar: avatar,
+                                            isSelected: (selectedAvatarId ?? authManager.currentUser?.avatar_id) == avatar.id,
+                                            onTap: {
+                                                selectedAvatarId = avatar.id
+                                                updateAvatar(avatarId: avatar.id)
+                                            }
+                                        )
+                                    }
+                                }
+                
+                                .padding(.vertical, 2)
+                                .padding(.horizontal, 2)
+                                .padding(.trailing)
+                            }
+                            
+                            .frame(height: 64)
+                        }
+                        .padding(.horizontal)
+                        .padding(.top, 24)
+                        
+                        // Заголовок "Мои данные"
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("Мои данные")
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal)
+                                .padding(.top, 24)
+                            
+                            // Список данных пользователя
+                            VStack(spacing: 0) {
+                                if let user = authManager.currentUser {
+                                    VStack(spacing: 0) {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text("Имя")
+                                                    .font(.body)
+                                                Text(user.name)
+                                                    .font(.subheadline)
+                                                    .foregroundColor(.secondary)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                            Spacer()
+                                        }
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 12)
+                                        .background(Color(UIColor.systemBackground))
+                                        
+                                        Divider()
+                                            .padding(.leading, 16)
+                                        
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text("Email")
+                                                    .font(.body)
+                                                Text(user.email)
+                                                    .font(.subheadline)
+                                                    .foregroundColor(.secondary)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                            Spacer()
+                                        }
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 12)
+                                        .background(Color(UIColor.systemBackground))
+                                        
+                                        Divider()
+                                            .padding(.leading, 16)
+                                        
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text("Статус")
+                                                    .font(.body)
+                                                Text(user.role == "worker" ? "Рабочий" : user.role == "admin" ? "Админ" : user.role)
+                                                    .font(.subheadline)
+                                                    .foregroundColor(.secondary)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                            Spacer()
+                                        }
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 12)
+                                        .background(Color(UIColor.systemBackground))
+                                    }
+                                    .background(Color(UIColor.systemBackground))
+                                    .cornerRadius(10)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(Color(UIColor.separator), lineWidth: 0.5)
+                                    )
+                                }
+                            }
+                            .padding(.horizontal)
+                            .padding(.top, 12)
+                        }
+                    }
+                    .padding(.top, 32)
+                }
+                
+                // Кнопка Выйти внизу экрана
+                VStack {
+                    Button(action: {
+                        showLogoutAlert = true
+                    }) {
+                        Text("Выйти")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.red)
+                            .cornerRadius(10)
                     }
                     .padding(.horizontal)
+                    .padding(.bottom, 20)
                 }
-                .padding(.top, 32)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Профиль")
-                        .font(.system(size: 17, weight: .regular))
+                        .font(.headline)
                 }
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Назад") {
@@ -92,6 +195,12 @@ struct ProfileView: View {
             .task {
                 await loadAvatars()
                 selectedAvatarId = authManager.currentUser?.avatar_id
+            }
+            .alert("Вы точно хотите выйти?", isPresented: $showLogoutAlert) {
+                Button("Остаться", role: .cancel) { }
+                Button("Выйти", role: .destructive) {
+                    authManager.logout()
+                }
             }
         }
     }
@@ -128,6 +237,16 @@ struct ProfileView: View {
     }
 }
 
+struct ScrollDisabledIfAvailable: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content.scrollDisabled(true)
+        } else {
+            content
+        }
+    }
+}
+
 struct AvatarThumbnailView: View {
     let avatar: AvatarOut
     let isSelected: Bool
@@ -135,30 +254,30 @@ struct AvatarThumbnailView: View {
     
     var body: some View {
         Button(action: onTap) {
-            if let url = URL(string: avatar.image_url) {
-                AsyncImage(url: url) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    ProgressView()
+            Group {
+                if let url = URL(string: avatar.image_url) {
+                    AsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .background(Color(UIColor.quaternarySystemFill))
+                    } placeholder: {
+                        Color.gray.opacity(0.3)
+                    }
+                } else {
+                    Color.gray.opacity(0.3)
                 }
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(isSelected ? Color.green : Color.clear, lineWidth: 2)
-                )
-            } else {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 64, height: 64)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(isSelected ? Color.green : Color.clear, lineWidth: 2)
-                    )
             }
+            .frame(width: 64, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isSelected ? Color.green : Color.clear, lineWidth: 2)
+            )
         }
+        .buttonStyle(PlainButtonStyle())
+        .frame(width: 64, height: 64)
+        .fixedSize()
     }
 }
 

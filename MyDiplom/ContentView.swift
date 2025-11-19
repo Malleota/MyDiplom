@@ -13,7 +13,7 @@ struct ContentView: View {
         NavigationView {
             VStack(spacing: 16) {
                 // Шапка с аватаром и приветствием
-                HStack(spacing: 8) {
+                HStack(spacing: 12) {
                     Button(action: {
                         showProfile = true
                     }) {
@@ -26,17 +26,17 @@ struct ContentView: View {
                             } placeholder: {
                                 ProgressView()
                             }
-                            .frame(width: 48, height: 48)
+                            .frame(width: 56, height: 56)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                         } else {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.gray.opacity(0.3))
-                                .frame(width: 48, height: 48)
+                                .frame(width: 56, height: 56)
                         }
                     }
                     
-                    Text("Привет, \(authManager.currentUser?.name ?? "Пользователь")!")
-                        .font(.headline)
+                    Text("Привет, \(authManager.currentUser?.name ?? "")!")
+                        .font(.title2.bold())
                     
                     Spacer()
                 }
@@ -95,23 +95,8 @@ struct ContentView: View {
                 .padding(.top, 24)
 
                 Spacer()
-                
-                // Кнопка Выйти
-                Button(action: {
-                    authManager.logout()
-                }) {
-                    Text("Выйти")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(Color.red)
-                        .cornerRadius(10)
-                }
-                .padding(.bottom, 20)
             }
             .padding()
-            .navigationTitle("MyDiplomApp")
             .sheet(isPresented: $showDeviceList) {
                 DeviceListView(manager: manager) { device in
                     manager.stopScan()
