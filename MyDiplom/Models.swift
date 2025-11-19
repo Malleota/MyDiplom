@@ -23,3 +23,21 @@ struct APIError: Error, Codable {
     let detail: String
 }
 
+// MARK: - Register Models
+
+struct RegisterRequest: Codable {
+    let email: String
+    let password: String
+    let name: String
+    let role: String  // "worker" или "admin"
+}
+
+struct UserOut: Codable {
+    let id: String
+    let email: String
+    let name: String
+    let role: String
+    let is_active: Bool
+    let created_at: String
+}
+

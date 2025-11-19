@@ -57,5 +57,46 @@ class APIService {
             throw APIError(detail: "Ошибка сервера")
         }
     }
+    
+    /// Регистрация нового пользователя
+    func register(name: String, email: String, password: String) async throws -> UserOut {
+        let url = URL(string: "\(baseURL)/register")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let registerRequest = RegisterRequest(
+            email: email,
+            password: password,
+            name: name,
+            role: "worker"  // По умолчанию регистрируем как worker
+        )
+        
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(registerRequest)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        if httpResponse.statusCode == 201 {
+            let decoder = JSONDecoder()
+            return try decoder.decode(UserOut.self, from: data)
+        } else if httpResponse.statusCode == 400 {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка регистрации")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
 }
 

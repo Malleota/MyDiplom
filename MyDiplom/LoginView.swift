@@ -9,6 +9,8 @@ import SwiftUI
 
 struct LoginView: View {
     @StateObject private var authManager = AuthManager.shared
+    let onShowRegister: () -> Void
+    
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var errorMessage: String?
@@ -83,6 +85,16 @@ struct LoginView: View {
                                 .cornerRadius(10)
                         }
                         .disabled(!isFormValid || isLoading)
+                        
+                        // Кнопка Регистрация
+                        Button(action: {
+                            onShowRegister()
+                        }) {
+                            Text("Регистрация")
+                                .font(.headline)
+                                .foregroundColor(.blue)
+                        }
+                        .padding(.top, 8)
                     }
                     .padding(.horizontal, 32)
                     

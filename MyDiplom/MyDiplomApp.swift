@@ -16,7 +16,7 @@ struct MyDiplomApp: App {
             if authManager.isAuthenticated {
                 ContentView()
             } else {
-                LoginView()
+                AuthContainerView()
             }
         }
     }

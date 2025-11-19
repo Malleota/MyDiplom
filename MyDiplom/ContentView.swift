@@ -5,6 +5,7 @@ import CoreBluetooth
 
 struct ContentView: View {
     @StateObject private var manager = BLEManager()
+    @StateObject private var authManager = AuthManager.shared
     @State private var showDeviceList = false
 
     var body: some View {
@@ -63,6 +64,20 @@ struct ContentView: View {
                 .padding(.top, 24)
 
                 Spacer()
+                
+                // Кнопка Выйти
+                Button(action: {
+                    authManager.logout()
+                }) {
+                    Text("Выйти")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.red)
+                        .cornerRadius(10)
+                }
+                .padding(.bottom, 20)
             }
             .padding()
             .navigationTitle("MyDiplomApp")
