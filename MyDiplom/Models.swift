@@ -74,10 +74,15 @@ struct GreenhouseCreate: Codable {
     let name: String
     let description: String?
     let image_url: String?
-    let target_temp_min: Double?
-    let target_temp_max: Double?
-    let target_hum_min: Double?
-    let target_hum_max: Double?
+    let plants: [PlantInstanceCreate]?
+    let worker_ids: [String]?
+    let sensor_ble_identifier: String?
+}
+
+struct PlantInstanceCreate: Codable {
+    let plant_type_id: String
+    let quantity: Int
+    let note: String?
 }
 
 struct GreenhouseImageOut: Codable, Identifiable {

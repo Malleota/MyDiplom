@@ -268,6 +268,49 @@ class APIService {
         }
     }
     
+    /// Создать новую теплицу
+    func createGreenhouse(_ greenhouse: GreenhouseCreate) async throws -> GreenhouseOut {
+        guard let token = AuthManager.shared.accessToken else {
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/greenhouses")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(greenhouse)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        if httpResponse.statusCode == 201 {
+            let decoder = JSONDecoder()
+            return try decoder.decode(GreenhouseOut.self, from: data)
+        } else if httpResponse.statusCode == 400 {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка валидации")
+        } else if httpResponse.statusCode == 401 {
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            throw APIError(detail: "Доступ запрещен. Только администратор может создавать теплицы")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
+    
     /// Получить данные датчика по ID (если эндпоинт существует)
     func getSensorData(sensorId: String) async throws -> SensorDataOut? {
         // Примечание: эндпоинт может не существовать в API
