@@ -35,9 +35,8 @@ struct ContentView: View {
                         }
                     }
                     
-                    Text("Привет, \(authManager.currentUser?.name ?? "")!")
-                        .font(.title2.bold())
-                    
+                 .navigationTitle("Привет, \(authManager.currentUser?.name ?? "")!")
+            
                     Spacer()
                 }
                 .padding(.horizontal)
@@ -97,6 +96,32 @@ struct ContentView: View {
                 Spacer()
             }
             .padding()
+            .navigationTitle("Привет, \(authManager.currentUser?.name ?? "")!")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        showProfile = true
+                    }) {
+                        if let avatarUrl = authManager.currentUser?.avatar_url,
+                           let url = URL(string: avatarUrl) {
+                            AsyncImage(url: url) { image in
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } placeholder: {
+                                ProgressView()
+                            }
+                            .frame(width: 32, height: 32)
+                            .clipShape(Circle())
+                        } else {
+                            Circle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(width: 32, height: 32)
+                        }
+                    }
+                }
+            }
             .sheet(isPresented: $showDeviceList) {
                 DeviceListView(manager: manager) { device in
                     manager.stopScan()
@@ -115,41 +140,6 @@ struct ContentView: View {
             .task {
                 if authManager.currentUser == nil {
                     await authManager.loadUserData()
-                }
-            }
-        }
-    }
-}
-
-// Экран со списком устройств
-struct DeviceListView: View {
-    @ObservedObject var manager: BLEManager
-    let onSelect: (DiscoveredDevice) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationView {
-            List(manager.devices) { device in
-                Button {
-                    onSelect(device)
-                    dismiss()
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(device.name)
-                                .font(.headline)
-                            Text("RSSI: \(device.rssi) dBm")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                    }
-                }
-            }
-            .navigationTitle("Выбор устройства")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
                 }
             }
         }

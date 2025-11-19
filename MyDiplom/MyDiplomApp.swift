@@ -14,7 +14,7 @@ struct MyDiplomApp: App {
     var body: some Scene {
         WindowGroup {
             if authManager.isAuthenticated {
-                ContentView()
+                MainTabView()
             } else {
                 AuthContainerView()
             }
