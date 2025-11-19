@@ -208,24 +208,7 @@ struct PlantsView: View {
 // MARK: - Greenhouses View (Теплицы)
 struct GreenhousesView: View {
     var body: some View {
-        NavigationView {
-            VStack {
-                Spacer()
-                Image(systemName: "building.2.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(.blue)
-                Text("Теплицы")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .padding(.top, 16)
-                Text("Здесь будет список теплиц")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 8)
-                Spacer()
-            }
-            .navigationTitle("Теплицы")
-        }
+        GreenhouseListView()
     }
 }
 

@@ -55,3 +55,43 @@ struct AvatarUpdate: Codable {
     let avatar_id: String
 }
 
+// MARK: - Greenhouse Models
+
+struct GreenhouseOut: Codable, Identifiable {
+    let id: String
+    let name: String
+    let description: String?
+    let image_url: String?
+    let sensor_id: String?
+    let target_temp_min: Double?
+    let target_temp_max: Double?
+    let target_hum_min: Double?
+    let target_hum_max: Double?
+    let created_at: String
+}
+
+struct GreenhouseCreate: Codable {
+    let name: String
+    let description: String?
+    let image_url: String?
+    let target_temp_min: Double?
+    let target_temp_max: Double?
+    let target_hum_min: Double?
+    let target_hum_max: Double?
+}
+
+struct GreenhouseImageOut: Codable, Identifiable {
+    let id: String
+    let image_url: String
+    let name: String
+}
+
+// MARK: - Sensor Data Models
+
+struct SensorDataOut: Codable {
+    let id: String
+    let last_temperature: Double?
+    let last_humidity: Double?
+    let last_update: String?
+}
+
