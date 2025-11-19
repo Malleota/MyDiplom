@@ -95,8 +95,10 @@ struct GreenhouseImageOut: Codable, Identifiable {
 
 struct SensorDataOut: Codable {
     let id: String
+    let ble_identifier: String?
     let last_temperature: Double?
     let last_humidity: Double?
     let last_update: String?
+    let battery_percent: Int?  // Процент батареи, если доступен
 }
 

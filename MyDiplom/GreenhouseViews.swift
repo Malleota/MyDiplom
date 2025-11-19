@@ -208,12 +208,14 @@ struct CreateGreenhouseView: View {
     }
 }
 
-// MARK: - Greenhouse Detail View (Placeholder)
+// MARK: - Greenhouse Detail View
 
 struct GreenhouseDetailView: View {
     let greenhouseId: String
     @State private var greenhouse: GreenhouseOut?
+    @State private var sensorData: SensorDataOut?
     @State private var isLoading = true
+    @State private var showConnectSensor = false
     
     var body: some View {
         Group {
@@ -221,39 +223,123 @@ struct GreenhouseDetailView: View {
                 ProgressView("Загрузка...")
             } else if let greenhouse = greenhouse {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        // Изображение
-                        if let imageUrl = greenhouse.image_url, let url = URL(string: imageUrl) {
-                            AsyncImage(url: url) { image in
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            } placeholder: {
+                    VStack(alignment: .leading, spacing: 24) {
+                        // Заголовок: Название и описание с картинкой
+                        HStack(alignment: .top, spacing: 16) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                if let description = greenhouse.description {
+                                    Text(description)
+                                        .font(.body)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            
+                            Spacer()
+                            
+                            // Картинка справа
+                            if let imageUrl = greenhouse.image_url, let url = URL(string: imageUrl) {
+                                AsyncImage(url: url) { image in
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                } placeholder: {
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.gray.opacity(0.3))
+                                }
+                                .frame(width: 100, height: 100)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            } else {
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(Color.gray.opacity(0.3))
+                                    .frame(width: 100, height: 100)
+                                    .overlay(
+                                        Image(systemName: "building.2.fill")
+                                            .foregroundColor(.gray)
+                                            .font(.system(size: 40))
+                                    )
                             }
-                            .frame(height: 200)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
+                        .padding(.horizontal)
+                        .padding(.top)
                         
-                        // Название
-                        Text(greenhouse.name)
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                        
-                        // Описание
-                        if let description = greenhouse.description {
-                            Text(description)
-                                .font(.body)
-                                .foregroundColor(.secondary)
+                        // Блок "Текущие данные"
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Текущие данные")
+                                .font(.headline)
+                                .padding(.horizontal)
+                            
+                            if let sensorId = greenhouse.sensor_id, let sensor = sensorData {
+                                // Датчик подключен
+                                VStack(spacing: 16) {
+                                    // Название датчика и батарея
+                                    HStack {
+                                        Text(sensor.ble_identifier ?? "Датчик")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                        
+                                        Spacer()
+                                        
+                                        if let battery = sensor.battery_percent {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "battery.100")
+                                                    .foregroundColor(batteryColor(battery))
+                                                Text("\(battery)%")
+                                                    .font(.subheadline)
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal)
+                                    
+                                    // Две карточки: температура и влажность
+                                    HStack(spacing: 12) {
+                                        // Карточка температуры
+                                        if let temp = sensor.last_temperature {
+                                            SensorDataCard(
+                                                icon: "thermometer",
+                                                title: "Температура",
+                                                value: String(format: "%.1f", temp),
+                                                unit: "°C"
+                                            )
+                                        }
+                                        
+                                        // Карточка влажности
+                                        if let hum = sensor.last_humidity {
+                                            SensorDataCard(
+                                                icon: "drop.fill",
+                                                title: "Влажность",
+                                                value: String(format: "%.0f", hum),
+                                                unit: "%"
+                                            )
+                                        }
+                                    }
+                                    .padding(.horizontal)
+                                }
+                            } else {
+                                // Датчик не подключен
+                                VStack(spacing: 16) {
+                                    Text("Нет подключенных датчиков")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                    
+                                    Button(action: {
+                                        showConnectSensor = true
+                                    }) {
+                                        Text("Подключить")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 24)
+                                            .padding(.vertical, 12)
+                                            .background(Color.blue)
+                                            .cornerRadius(8)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 32)
+                            }
                         }
-                        
-                        Text("Здесь будет детальная информация о теплице")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .padding(.top)
+                        .padding(.top, 8)
                     }
-                    .padding()
                 }
             } else {
                 Text("Теплица не найдена")
@@ -262,8 +348,21 @@ struct GreenhouseDetailView: View {
         }
         .navigationTitle(greenhouse?.name ?? "Теплица")
         .navigationBarTitleDisplayMode(.large)
+        .sheet(isPresented: $showConnectSensor) {
+            ConnectSensorView(greenhouseId: greenhouseId)
+        }
         .task {
             await loadGreenhouse()
+        }
+    }
+    
+    private func batteryColor(_ percent: Int) -> Color {
+        if percent > 50 {
+            return .green
+        } else if percent > 20 {
+            return .orange
+        } else {
+            return .red
         }
     }
     
@@ -272,12 +371,96 @@ struct GreenhouseDetailView: View {
             let fetched = try await APIService.shared.getGreenhouse(id: greenhouseId)
             await MainActor.run {
                 greenhouse = fetched
+            }
+            
+            // Загружаем данные датчика, если он подключен
+            if let sensorId = fetched.sensor_id {
+                if let sensor = try? await APIService.shared.getSensorData(sensorId: sensorId) {
+                    await MainActor.run {
+                        sensorData = sensor
+                    }
+                }
+            }
+            
+            await MainActor.run {
                 isLoading = false
             }
         } catch {
             print("Ошибка загрузки теплицы: \(error)")
             await MainActor.run {
                 isLoading = false
+            }
+        }
+    }
+}
+
+// MARK: - Sensor Data Card
+
+struct SensorDataCard: View {
+    let icon: String
+    let title: String
+    let value: String
+    let unit: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundColor(.blue)
+            
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text(unit)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
+    }
+}
+
+// MARK: - Connect Sensor View (Placeholder)
+
+struct ConnectSensorView: View {
+    let greenhouseId: String
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.blue)
+                
+                Text("Подключение датчика")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                
+                Text("Здесь будет форма подключения датчика")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Подключить датчик")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") {
+                        dismiss()
+                    }
+                }
             }
         }
     }
