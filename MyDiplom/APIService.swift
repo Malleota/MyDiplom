@@ -23,38 +23,74 @@ class APIService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30.0 // Таймаут 30 секунд
         
         // OAuth2PasswordRequestForm использует form-data формат
         let bodyString = "username=\(email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&password=\(password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
         request.httpBody = bodyString.data(using: .utf8)
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        print("🔐 Login: Отправка запроса на \(url.absoluteString)")
+        print("🔐 Login: Body = username=\(email)&password=***")
         
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError(detail: "Неверный ответ сервера")
-        }
-        
-        if httpResponse.statusCode == 200 {
-            let decoder = JSONDecoder()
-            return try decoder.decode(TokenResponse.self, from: data)
-        } else if httpResponse.statusCode == 401 {
-            let decoder = JSONDecoder()
-            if let error = try? decoder.decode(APIError.self, from: data) {
-                throw APIError(detail: error.detail)
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            print("🔐 Login: Получен ответ от сервера")
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("❌ Login: Неверный ответ сервера (не HTTPURLResponse)")
+                throw APIError(detail: "Неверный ответ сервера")
             }
-            throw APIError(detail: "Неверный email или пароль")
-        } else if httpResponse.statusCode == 403 {
-            let decoder = JSONDecoder()
-            if let error = try? decoder.decode(APIError.self, from: data) {
-                throw APIError(detail: error.detail)
+            
+            print("🔐 Login: Статус ответа = \(httpResponse.statusCode)")
+            
+            if httpResponse.statusCode == 200 {
+                let decoder = JSONDecoder()
+                let tokenResponse = try decoder.decode(TokenResponse.self, from: data)
+                print("✅ Login: Авторизация успешна")
+                return tokenResponse
+            } else if httpResponse.statusCode == 401 {
+                let decoder = JSONDecoder()
+                if let error = try? decoder.decode(APIError.self, from: data) {
+                    print("❌ Login: Ошибка 401 - \(error.detail)")
+                    throw APIError(detail: error.detail)
+                }
+                print("❌ Login: Ошибка 401 - Неверный email или пароль")
+                throw APIError(detail: "Неверный email или пароль")
+            } else if httpResponse.statusCode == 403 {
+                let decoder = JSONDecoder()
+                if let error = try? decoder.decode(APIError.self, from: data) {
+                    print("❌ Login: Ошибка 403 - \(error.detail)")
+                    throw APIError(detail: error.detail)
+                }
+                print("❌ Login: Ошибка 403 - Пользователь неактивен")
+                throw APIError(detail: "Пользователь неактивен")
+            } else {
+                let decoder = JSONDecoder()
+                if let error = try? decoder.decode(APIError.self, from: data) {
+                    print("❌ Login: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                    throw APIError(detail: error.detail)
+                }
+                print("❌ Login: Ошибка сервера (код \(httpResponse.statusCode))")
+                throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
             }
-            throw APIError(detail: "Пользователь неактивен")
-        } else {
-            let decoder = JSONDecoder()
-            if let error = try? decoder.decode(APIError.self, from: data) {
-                throw APIError(detail: error.detail)
+        } catch let urlError as URLError {
+            print("❌ Login: URLError - \(urlError.localizedDescription)")
+            print("❌ Login: URLError code - \(urlError.code.rawValue)")
+            if urlError.code == .timedOut {
+                print("❌ Login: Превышено время ожидания")
+                throw APIError(detail: "Превышено время ожидания. Проверьте подключение к интернету.")
+            } else if urlError.code == .notConnectedToInternet || urlError.code == .networkConnectionLost {
+                print("❌ Login: Нет подключения к интернету")
+                throw APIError(detail: "Нет подключения к интернету")
+            } else {
+                print("❌ Login: Ошибка сети - \(urlError.localizedDescription)")
+                throw APIError(detail: "Ошибка подключения: \(urlError.localizedDescription)")
             }
-            throw APIError(detail: "Ошибка сервера")
+        } catch let apiError as APIError {
+            throw apiError
+        } catch {
+            print("❌ Login: Неизвестная ошибка - \(error.localizedDescription)")
+            throw APIError(detail: "Ошибка подключения: \(error.localizedDescription)")
         }
     }
     
@@ -367,6 +403,54 @@ class APIService {
     func getSensorData(sensorId: String) async throws -> SensorDataOut? {
         // Этот метод больше не используется, но оставлен для совместимости
         return nil
+    }
+    
+    /// Отвязать датчик от теплицы
+    func unbindSensorFromGreenhouse(greenhouseId: String) async throws {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ unbindSensorFromGreenhouse: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/greenhouses/\(greenhouseId)/sensor")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("📡 unbindSensorFromGreenhouse: Отправка запроса на \(url.absoluteString)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ unbindSensorFromGreenhouse: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📡 unbindSensorFromGreenhouse: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 204 {
+            print("✅ unbindSensorFromGreenhouse: Датчик успешно отвязан")
+            return
+        } else if httpResponse.statusCode == 401 {
+            print("❌ unbindSensorFromGreenhouse: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ unbindSensorFromGreenhouse: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Только администратор может отвязывать датчики")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ unbindSensorFromGreenhouse: Ошибка 404 - Теплица не найдена")
+            throw APIError(detail: "Теплица не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ unbindSensorFromGreenhouse: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("❌ unbindSensorFromGreenhouse: Ошибка \(httpResponse.statusCode) - ответ: \(responseString)")
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
     }
     
     /// Привязать датчик к теплице

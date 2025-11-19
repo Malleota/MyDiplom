@@ -36,7 +36,7 @@ struct GreenhouseListView: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 16) {
-                            ForEach(viewModel.greenhouses) { greenhouse in
+                            ForEach(viewModel.greenhouses, id: \.id) { greenhouse in
                                 NavigationLink(destination: GreenhouseDetailView(greenhouseId: greenhouse.id).environmentObject(bleManager)) {
                                     GreenhouseCardView(
                                         greenhouse: greenhouse,
@@ -44,6 +44,7 @@ struct GreenhouseListView: View {
                                     )
                                 }
                                 .buttonStyle(PlainButtonStyle())
+                                .id("greenhouse_\(greenhouse.id)") // Стабильный идентификатор для предотвращения пересоздания
                             }
                         }
                         .padding()
@@ -70,9 +71,9 @@ struct GreenhouseListView: View {
                 await viewModel.loadGreenhouses(bleManager: bleManager)
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GreenhouseUpdated"))) { _ in
-                Task {
-                    await viewModel.loadGreenhouses(bleManager: bleManager)
-                }
+                // НЕ обновляем список при обновлении данных датчика, чтобы не закрывать открытый экран
+                // Данные датчиков обновляются через BLE в реальном времени, поэтому обновление списка не требуется
+                // Если нужно обновить список (например, при добавлении/удалении теплицы), это делается вручную через pull-to-refresh
             }
         }
     }
@@ -157,17 +158,53 @@ class GreenhouseListViewModel: ObservableObject {
     @Published var sensorData: [String: SensorReadingOut] = [:]  // Изменили на SensorReadingOut
     @Published var isLoading = false
     
-    func loadGreenhouses(bleManager: BLEManager? = nil) async {
+    func loadGreenhouses(bleManager: BLEManager? = nil, forceReload: Bool = false) async {
         isLoading = true
         defer { isLoading = false }
         
         do {
             let fetchedGreenhouses = try await APIService.shared.getGreenhouses()
             print("📥 loadGreenhouses: Загружено \(fetchedGreenhouses.count) теплиц")
-            greenhouses = fetchedGreenhouses
             
-            // Очищаем старые данные датчиков
-            sensorData.removeAll()
+            // Если это не принудительная перезагрузка, обновляем только измененные теплицы
+            // чтобы не пересоздавать NavigationLink и не закрывать открытый экран
+            if !forceReload && !greenhouses.isEmpty {
+                // Обновляем только измененные теплицы, сохраняя порядок
+                var updatedGreenhouses = greenhouses
+                var hasChanges = false
+                
+                for (index, oldGreenhouse) in updatedGreenhouses.enumerated() {
+                    if let newGreenhouse = fetchedGreenhouses.first(where: { $0.id == oldGreenhouse.id }) {
+                        // Проверяем, изменилась ли теплица
+                        if oldGreenhouse.sensor_id != newGreenhouse.sensor_id ||
+                           oldGreenhouse.name != newGreenhouse.name {
+                            updatedGreenhouses[index] = newGreenhouse
+                            hasChanges = true
+                        }
+                    } else {
+                        // Теплица была удалена
+                        hasChanges = true
+                    }
+                }
+                
+                // Проверяем, есть ли новые теплицы
+                let oldIds = Set(greenhouses.map { $0.id })
+                let newIds = Set(fetchedGreenhouses.map { $0.id })
+                if oldIds != newIds {
+                    hasChanges = true
+                }
+                
+                if hasChanges {
+                    // Если есть изменения, обновляем список
+                    greenhouses = fetchedGreenhouses
+                } else {
+                    // Если изменений нет, обновляем только данные внутри существующих теплиц
+                    greenhouses = updatedGreenhouses
+                }
+            } else {
+                // При первой загрузке или принудительной перезагрузке обновляем полностью
+                greenhouses = fetchedGreenhouses
+            }
             
             // Данные датчиков будут браться из BLE через getSensorDataForGreenhouse
             // Не загружаем данные с сервера
@@ -269,6 +306,7 @@ struct GreenhouseDetailView: View {
     @State private var isLoading = true
     @State private var showDeviceList = false
     @State private var isBinding = false
+    @State private var isUnbinding = false
     @State private var errorMessage: String?
     
     var body: some View {
@@ -325,7 +363,7 @@ struct GreenhouseDetailView: View {
                             if let sensorId = greenhouse.sensor_id, let sensor = sensorData {
                                 // Датчик подключен
                                 VStack(spacing: 16) {
-                                    // Название датчика
+                                    // Название датчика, батарея и кнопка отвязать
                                     HStack {
                                         Text("Датчик")
                                             .font(.subheadline)
@@ -340,9 +378,31 @@ struct GreenhouseDetailView: View {
                                                 Image(systemName: "battery.100")
                                                     .foregroundColor(batteryColor(bleSensorData.batteryPercent))
                                                 Text("\(bleSensorData.batteryPercent)%")
-                                                    .font(.subheadline)
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
                                             }
                                         }
+                                        
+                                        // Кнопка отвязать
+                                        Button(action: {
+                                            Task {
+                                                await unbindSensor()
+                                            }
+                                        }) {
+                                            if isUnbinding {
+                                                ProgressView()
+                                                    .scaleEffect(0.8)
+                                            } else {
+                                                Text("Отвязать")
+                                                    .font(.caption)
+                                                    .foregroundColor(.red)
+                                            }
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.red.opacity(0.1))
+                                        .cornerRadius(6)
+                                        .disabled(isUnbinding)
                                     }
                                     .padding(.horizontal)
                                     
@@ -516,6 +576,71 @@ struct GreenhouseDetailView: View {
         }
     }
     
+    private func unbindSensor() async {
+        guard let greenhouse = greenhouse else { return }
+        
+        await MainActor.run {
+            isUnbinding = true
+            errorMessage = nil
+        }
+        
+        // Проверяем, нужно ли отключаться от устройства (до удаления соответствия)
+        let savedBLEIdentifier = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+        var shouldDisconnect = false
+        if let connectedDevice = bleManager.lastConnectedDevice,
+           let savedBLE = savedBLEIdentifier {
+            shouldDisconnect = connectedDevice.id.uuidString == savedBLE
+            print("🔍 Проверка отключения: connectedDevice=\(connectedDevice.id.uuidString), savedBLE=\(savedBLE), shouldDisconnect=\(shouldDisconnect)")
+        } else {
+            print("🔍 Проверка отключения: connectedDevice=\(bleManager.lastConnectedDevice?.id.uuidString ?? "nil"), savedBLE=\(savedBLEIdentifier ?? "nil")")
+        }
+        
+        do {
+            // Отвязываем датчик от теплицы в БД
+            try await APIService.shared.unbindSensorFromGreenhouse(greenhouseId: greenhouse.id)
+            print("✅ Датчик успешно отвязан от теплицы в БД")
+            
+            // Отключаемся от устройства, если это датчик этой теплицы (до удаления соответствия)
+            if shouldDisconnect {
+                print("🔌 Отключаемся от устройства...")
+                await MainActor.run {
+                    bleManager.disconnect()
+                }
+                print("✅ Отключено от устройства")
+            } else {
+                print("ℹ️ Не отключаемся от устройства (это не датчик этой теплицы или устройство не подключено)")
+            }
+            
+            // Удаляем сохраненное соответствие
+            UserDefaults.standard.removeObject(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+            print("🗑️ Удалено соответствие из UserDefaults")
+            
+            // Обновляем данные теплицы
+            await loadGreenhouse()
+            
+            // НЕ отправляем уведомление для обновления списка, чтобы не закрывать открытый экран
+            // Данные обновляются локально через loadGreenhouse()
+            
+            await MainActor.run {
+                isUnbinding = false
+            }
+            
+            // НЕ закрываем экран - остаемся на странице теплицы
+        } catch {
+            print("❌ Ошибка отвязки датчика: \(error)")
+            await MainActor.run {
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.detail
+                    print("API Error detail: \(apiError.detail)")
+                } else {
+                    errorMessage = "Ошибка отвязки датчика: \(error.localizedDescription)"
+                    print("General error: \(error.localizedDescription)")
+                }
+                isUnbinding = false
+            }
+        }
+    }
+    
     private func bindDeviceToGreenhouse(_ device: DiscoveredDevice) async {
         await MainActor.run {
             isBinding = true
@@ -553,8 +678,8 @@ struct GreenhouseDetailView: View {
             // Успешно привязано и подключено, обновляем данные теплицы
             await loadGreenhouse()
             
-            // Отправляем уведомление для обновления списка теплиц
-            NotificationCenter.default.post(name: NSNotification.Name("GreenhouseUpdated"), object: nil)
+            // НЕ отправляем уведомление для обновления списка, чтобы не закрывать открытый экран
+            // Данные обновляются локально через loadGreenhouse()
             
             await MainActor.run {
                 isBinding = false

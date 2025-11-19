@@ -123,12 +123,16 @@ struct LoginView: View {
         
         Task {
             do {
+                print("🔐 LoginView: Начало авторизации для \(email)")
                 let response = try await APIService.shared.login(email: email, password: password)
+                print("✅ LoginView: Получен токен, сохранение...")
                 await MainActor.run {
                     authManager.login(token: response.access_token)
                     isLoading = false
+                    print("✅ LoginView: Авторизация завершена успешно")
                 }
             } catch let error as APIError {
+                print("❌ LoginView: API Error - \(error.detail)")
                 await MainActor.run {
                     errorMessage = error.detail
                     isLoading = false
