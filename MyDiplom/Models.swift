@@ -102,3 +102,16 @@ struct SensorDataOut: Codable {
     let battery_percent: Int?  // Процент батареи, если доступен
 }
 
+struct SensorReadingOut: Codable {
+    let id: String
+    let sensor_id: String
+    let greenhouse_id: String
+    let temperature: Double
+    let humidity: Double
+    let created_at: String
+}
+
+struct BindSensorIn: Codable {
+    let ble_identifier: String
+}
+

@@ -311,35 +311,126 @@ class APIService {
         }
     }
     
-    /// Получить данные датчика по ID (если эндпоинт существует)
-    func getSensorData(sensorId: String) async throws -> SensorDataOut? {
-        // Примечание: эндпоинт может не существовать в API
-        // В этом случае метод вернет nil
+    /// Получить текущие данные датчика для теплицы
+    func getCurrentSensorData(greenhouseId: String) async throws -> SensorReadingOut? {
         guard let token = AuthManager.shared.accessToken else {
+            print("❌ getCurrentSensorData: Нет токена авторизации")
             throw APIError(detail: "Не авторизован")
         }
         
-        let url = URL(string: "\(baseURL)/sensors/\(sensorId)")!
+        let url = URL(string: "\(baseURL)/greenhouses/\(greenhouseId)/sensor-data/current")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("📡 getCurrentSensorData: Запрос данных датчика для теплицы greenhouseId=\(greenhouseId), URL=\(url.absoluteString)")
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
+                print("❌ getCurrentSensorData: Неверный ответ сервера")
                 return nil
             }
             
+            print("📡 getCurrentSensorData: Статус ответа = \(httpResponse.statusCode)")
+            
             if httpResponse.statusCode == 200 {
                 let decoder = JSONDecoder()
-                return try decoder.decode(SensorDataOut.self, from: data)
+                let sensorData = try decoder.decode(SensorReadingOut.self, from: data)
+                print("✅ getCurrentSensorData: Данные датчика получены: temp=\(sensorData.temperature), hum=\(sensorData.humidity)")
+                return sensorData
+            } else if httpResponse.statusCode == 404 {
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("⚠️ getCurrentSensorData: Данные не найдены (404), ответ: \(responseString)")
+                }
+                return nil
             } else {
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("⚠️ getCurrentSensorData: Ошибка \(httpResponse.statusCode), ответ: \(responseString)")
+                } else {
+                    print("⚠️ getCurrentSensorData: Ошибка \(httpResponse.statusCode), не удалось декодировать ответ")
+                }
                 return nil
             }
         } catch {
-            // Если эндпоинт не существует, просто возвращаем nil
+            print("❌ getCurrentSensorData: Исключение при запросе: \(error.localizedDescription)")
+            if let decodingError = error as? DecodingError {
+                print("❌ getCurrentSensorData: Ошибка декодирования: \(decodingError)")
+            }
             return nil
+        }
+    }
+    
+    /// Получить данные датчика по ID (устаревший метод, оставлен для совместимости)
+    @available(*, deprecated, message: "Используйте getCurrentSensorData(greenhouseId:) вместо этого")
+    func getSensorData(sensorId: String) async throws -> SensorDataOut? {
+        // Этот метод больше не используется, но оставлен для совместимости
+        return nil
+    }
+    
+    /// Привязать датчик к теплице
+    func bindSensorToGreenhouse(greenhouseId: String, bleIdentifier: String) async throws {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ bindSensorToGreenhouse: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/greenhouses/\(greenhouseId)/sensor")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let bindRequest = BindSensorIn(ble_identifier: bleIdentifier)
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(bindRequest)
+        
+        print("📡 bindSensorToGreenhouse: Отправка запроса на \(url.absoluteString)")
+        print("📡 bindSensorToGreenhouse: ble_identifier=\(bleIdentifier)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ bindSensorToGreenhouse: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📡 bindSensorToGreenhouse: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 204 {
+            // Успешно привязано
+            print("✅ bindSensorToGreenhouse: Датчик успешно привязан")
+            return
+        } else if httpResponse.statusCode == 400 {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ bindSensorToGreenhouse: Ошибка 400 - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("❌ bindSensorToGreenhouse: Ошибка 400 - ответ: \(responseString)")
+            }
+            throw APIError(detail: "Ошибка привязки датчика")
+        } else if httpResponse.statusCode == 401 {
+            print("❌ bindSensorToGreenhouse: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ bindSensorToGreenhouse: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Только администратор может привязывать датчики")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ bindSensorToGreenhouse: Ошибка 404 - Теплица не найдена")
+            throw APIError(detail: "Теплица не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ bindSensorToGreenhouse: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("❌ bindSensorToGreenhouse: Ошибка \(httpResponse.statusCode) - ответ: \(responseString)")
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
         }
     }
 }

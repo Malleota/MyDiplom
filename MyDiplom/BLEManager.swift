@@ -10,7 +10,7 @@ import CoreBluetooth
 import Combine
 
 // Данные с датчика
-struct SensorData {
+struct SensorData: Equatable {
     let temperature: Double
     let humidity: Double
     let batteryPercent: Int
@@ -47,6 +47,9 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     
     // Таймаут для автоподключения (10 секунд)
     private let autoConnectTimeout: TimeInterval = 10.0
+    
+    // Флаг для отключения автоподключения (для ручного сканирования)
+    private var disableAutoConnect = false
 
     override init() {
         super.init()
@@ -63,19 +66,20 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     // MARK: Публичные методы
 
-    func startScan() {
+    func startScan(disableAutoConnect: Bool = false) {
         guard central.state == .poweredOn else {
             print("Cannot start scan, state =", central.state.rawValue)
             return
         }
         // Для ручного поиска очищаем список
+        self.disableAutoConnect = disableAutoConnect
         devices.removeAll()
         sensors.removeAll()
         central.scanForPeripherals(
             withServices: nil,
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
         )
-        print("SCAN STARTED")
+        print("SCAN STARTED (autoConnect disabled: \(disableAutoConnect))")
     }
 
     func stopScan() {
@@ -104,6 +108,24 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         UserDefaults.standard.set(device.id.uuidString, forKey: savedDeviceKey)
         savedDeviceId = device.id
     }
+    
+    // Отключение от устройства
+    func disconnect() {
+        if let peripheral = connectedPeripheral {
+            central.cancelPeripheralConnection(peripheral)
+            print("DISCONNECT FROM:", peripheral.identifier)
+        }
+        
+        // Очищаем сохраненное устройство
+        UserDefaults.standard.removeObject(forKey: savedDeviceKey)
+        savedDeviceId = nil
+        
+        DispatchQueue.main.async {
+            self.lastConnectedDevice = nil
+            self.sensors.removeAll()
+            self.connectedPeripheral = nil
+        }
+    }
 
     // MARK: CBCentralManagerDelegate
 
@@ -112,7 +134,8 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         print("Bluetooth state:", central.state.rawValue)
 
         // Если Bluetooth включён и есть сохранённое устройство — сразу начинаем сканировать
-        if central.state == .poweredOn, savedDeviceId != nil {
+        // Но только если автоподключение не отключено
+        if central.state == .poweredOn, savedDeviceId != nil, !disableAutoConnect {
             // При автоподключении не используем AllowDuplicatesKey, чтобы избежать лишних логов
             central.scanForPeripherals(
                 withServices: nil,
@@ -150,12 +173,13 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         )
 
         // Проверяем, идёт ли автоподключение к сохранённому устройству
-        let isAutoConnecting = savedDeviceId != nil && lastConnectedDevice == nil
+        let isAutoConnecting = savedDeviceId != nil && lastConnectedDevice == nil && !disableAutoConnect
         
-        // Автоподключение к сохранённому устройству
+        // Автоподключение к сохранённому устройству (только если не отключено)
         if let targetId = savedDeviceId,
            targetId == peripheral.identifier,
-           lastConnectedDevice == nil {
+           lastConnectedDevice == nil,
+           !disableAutoConnect {
             print("Found saved device:", name, "RSSI:", RSSI.intValue)
             autoConnectTimer?.invalidate()  // Отменяем таймаут
             stopScan()  // Останавливаем сканирование сразу после нахождения нужного устройства

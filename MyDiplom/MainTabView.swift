@@ -10,6 +10,7 @@ import CoreBluetooth
 
 struct MainTabView: View {
     @StateObject private var authManager = AuthManager.shared
+    @StateObject private var bleManager = BLEManager()
     @State private var selectedTab = 0
     
     var isAdmin: Bool {
@@ -20,6 +21,7 @@ struct MainTabView: View {
         TabView(selection: $selectedTab) {
             // Главная
             HomeView()
+                .environmentObject(bleManager)
                 .tabItem {
                     Label("Главная", systemImage: "house.fill")
                 }
@@ -34,6 +36,7 @@ struct MainTabView: View {
             
             // Теплицы
             GreenhousesView()
+                .environmentObject(bleManager)
                 .tabItem {
                     Label("Теплицы", systemImage: "building.2.fill")
                 }
@@ -64,7 +67,7 @@ struct MainTabView: View {
 
 // MARK: - Home View (Главная)
 struct HomeView: View {
-    @StateObject private var manager = BLEManager()
+    @EnvironmentObject var manager: BLEManager
     @StateObject private var authManager = AuthManager.shared
     @State private var showDeviceList = false
     @State private var showProfile = false
@@ -141,6 +144,14 @@ struct HomeView: View {
                             .multilineTextAlignment(.center)
                             .padding(.top, 8)
                     }
+                    
+                    // Кнопка отключения
+                    Button("Отключить") {
+                        manager.disconnect()
+                    }
+                    .buttonStyle(.bordered)
+                    .foregroundColor(.red)
+                    .padding(.top, 16)
                 } else {
                     Text("Устройство не выбрано")
                         .foregroundColor(.secondary)
@@ -148,7 +159,7 @@ struct HomeView: View {
 
                 // Кнопка ручного выбора устройства (если нужно сменить)
                 Button("Найти устройства") {
-                    manager.startScan()
+                    manager.startScan(disableAutoConnect: true)
                     showDeviceList = true
                 }
                 .buttonStyle(.borderedProminent)
@@ -207,8 +218,10 @@ struct PlantsView: View {
 
 // MARK: - Greenhouses View (Теплицы)
 struct GreenhousesView: View {
+    @EnvironmentObject var bleManager: BLEManager
     var body: some View {
         GreenhouseListView()
+            .environmentObject(bleManager)
     }
 }
 
@@ -241,32 +254,41 @@ struct DeviceListView: View {
     @ObservedObject var manager: BLEManager
     let onSelect: (DiscoveredDevice) -> Void
     @Environment(\.dismiss) private var dismiss
+    var showNavigationView: Bool = true
 
     var body: some View {
-        NavigationView {
-            List(manager.devices) { device in
-                Button {
-                    onSelect(device)
+        let content = List(manager.devices) { device in
+            Button {
+                onSelect(device)
+                if showNavigationView {
                     dismiss()
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(device.name)
-                                .font(.headline)
-                            Text("RSSI: \(device.rssi) dBm")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
+                }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(device.name)
+                            .font(.headline)
+                        Text("RSSI: \(device.rssi) dBm")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
                     }
+                    Spacer()
                 }
             }
-            .navigationTitle("Выбор устройства")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
-                }
+        }
+        .navigationTitle("Выбор устройства")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Закрыть") { dismiss() }
             }
+        }
+        
+        if showNavigationView {
+            NavigationView {
+                content
+            }
+        } else {
+            content
         }
     }
 }
