@@ -36,6 +36,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     private var central: CBCentralManager!
     private var peripherals: [UUID: CBPeripheral] = [:]
     private var connectedPeripheral: CBPeripheral?
+    private var autoConnectTimer: Timer?
 
     // Характеристика с температурой/влажностью/батареей
     private let tempHumidityUUID = CBUUID(string: "EBE0CCC1-7A0A-4B0C-8A1A-6FF2997DA3A6")
@@ -43,6 +44,9 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     // Ключ для сохранения UUID последнего устройства
     private let savedDeviceKey = "SavedPeripheralUUID"
     private var savedDeviceId: UUID?
+    
+    // Таймаут для автоподключения (10 секунд)
+    private let autoConnectTimeout: TimeInterval = 10.0
 
     override init() {
         super.init()
@@ -76,6 +80,8 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     func stopScan() {
         central?.stopScan()
+        autoConnectTimer?.invalidate()
+        autoConnectTimer = nil
         print("SCAN STOPPED")
     }
 
@@ -107,11 +113,22 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
         // Если Bluetooth включён и есть сохранённое устройство — сразу начинаем сканировать
         if central.state == .poweredOn, savedDeviceId != nil {
+            // При автоподключении не используем AllowDuplicatesKey, чтобы избежать лишних логов
             central.scanForPeripherals(
                 withServices: nil,
-                options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
+                options: nil
             )
             print("AUTO SCAN STARTED FOR SAVED DEVICE")
+            
+            // Устанавливаем таймаут для автоподключения
+            autoConnectTimer?.invalidate()
+            autoConnectTimer = Timer.scheduledTimer(withTimeInterval: autoConnectTimeout, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
+                if self.lastConnectedDevice == nil {
+                    self.stopScan()
+                    print("Auto-connect timeout: device not found")
+                }
+            }
         }
     }
 
@@ -132,21 +149,29 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             rssi: RSSI.intValue
         )
 
-        // Обновляем/добавляем устройство в список
-        if let index = devices.firstIndex(where: { $0.id == dev.id }) {
-            devices[index] = dev
-        } else {
-            devices.append(dev)
-        }
-
-        print("FOUND DEVICE:", name, "RSSI:", RSSI.intValue)
-
+        // Проверяем, идёт ли автоподключение к сохранённому устройству
+        let isAutoConnecting = savedDeviceId != nil && lastConnectedDevice == nil
+        
         // Автоподключение к сохранённому устройству
         if let targetId = savedDeviceId,
            targetId == peripheral.identifier,
            lastConnectedDevice == nil {
-            print("Auto-connect to saved device:", name)
+            print("Found saved device:", name, "RSSI:", RSSI.intValue)
+            autoConnectTimer?.invalidate()  // Отменяем таймаут
+            stopScan()  // Останавливаем сканирование сразу после нахождения нужного устройства
             connect(to: dev)
+            return  // Не добавляем устройство в общий список при автоподключении
+        }
+
+        // Добавляем устройство в список только при ручном сканировании
+        if !isAutoConnecting {
+            // Обновляем/добавляем устройство в список
+            if let index = devices.firstIndex(where: { $0.id == dev.id }) {
+                devices[index] = dev
+            } else {
+                devices.append(dev)
+            }
+            print("FOUND DEVICE:", name, "RSSI:", RSSI.intValue)
         }
     }
 
