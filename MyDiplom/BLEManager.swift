@@ -50,6 +50,9 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     
     // Флаг для отключения автоподключения (для ручного сканирования)
     private var disableAutoConnect = false
+    
+    // Список ble_identifier датчиков, привязанных к теплицам
+    private var boundSensorIdentifiers: Set<String> = []
 
     override init() {
         super.init()
@@ -65,6 +68,36 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     }
 
     // MARK: Публичные методы
+    
+    /// Обновляет список привязанных датчиков и проверяет, нужно ли автоподключаться
+    func updateBoundSensors(_ bleIdentifiers: [String]) {
+        boundSensorIdentifiers = Set(bleIdentifiers)
+        print("📋 updateBoundSensors: Обновлен список привязанных датчиков: \(bleIdentifiers)")
+        
+        // Если есть сохраненный датчик и он привязан к теплице, разрешаем автоподключение
+        if let savedId = savedDeviceId {
+            let savedIdString = savedId.uuidString
+            if boundSensorIdentifiers.contains(savedIdString) {
+                print("✅ Сохраненный датчик \(savedIdString) привязан к теплице, автоподключение разрешено")
+                // Если Bluetooth включен и еще не подключены, начинаем сканирование
+                if central.state == .poweredOn, lastConnectedDevice == nil, !disableAutoConnect {
+                    central.scanForPeripherals(withServices: nil, options: nil)
+                    print("AUTO SCAN STARTED FOR BOUND SENSOR")
+                    
+                    autoConnectTimer?.invalidate()
+                    autoConnectTimer = Timer.scheduledTimer(withTimeInterval: autoConnectTimeout, repeats: false) { [weak self] _ in
+                        guard let self = self else { return }
+                        if self.lastConnectedDevice == nil {
+                            self.stopScan()
+                            print("Auto-connect timeout: bound sensor not found")
+                        }
+                    }
+                }
+            } else {
+                print("⚠️ Сохраненный датчик \(savedIdString) не привязан к теплице, автоподключение не требуется")
+            }
+        }
+    }
 
     func startScan(disableAutoConnect: Bool = false) {
         guard central.state == .poweredOn else {
@@ -133,15 +166,18 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         bluetoothState = central.state
         print("Bluetooth state:", central.state.rawValue)
 
-        // Если Bluetooth включён и есть сохранённое устройство — сразу начинаем сканировать
+        // Если Bluetooth включён и есть сохранённое устройство, привязанное к теплице — начинаем сканировать
         // Но только если автоподключение не отключено
-        if central.state == .poweredOn, savedDeviceId != nil, !disableAutoConnect {
+        if central.state == .poweredOn, 
+           let savedId = savedDeviceId,
+           !disableAutoConnect,
+           boundSensorIdentifiers.contains(savedId.uuidString) {
             // При автоподключении не используем AllowDuplicatesKey, чтобы избежать лишних логов
             central.scanForPeripherals(
                 withServices: nil,
                 options: nil
             )
-            print("AUTO SCAN STARTED FOR SAVED DEVICE")
+            print("AUTO SCAN STARTED FOR SAVED DEVICE (bound to greenhouse)")
             
             // Устанавливаем таймаут для автоподключения
             autoConnectTimer?.invalidate()
@@ -288,6 +324,21 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                   "T=", sensor.temperature,
                   "H=", sensor.humidity,
                   "Bat=", sensor.batteryPercent, "%", sensor.batteryVoltage, "V")
+            
+            // Отправляем данные на сервер в фоновом режиме
+            let bleIdentifier = peripheral.identifier.uuidString
+            Task {
+                do {
+                    try await APIService.shared.sendSensorData(
+                        bleIdentifier: bleIdentifier,
+                        temperature: sensor.temperature,
+                        humidity: sensor.humidity
+                    )
+                } catch {
+                    // Ошибка уже обработана в sendSensorData, просто логируем
+                    print("⚠️ Не удалось отправить данные на сервер: \(error.localizedDescription)")
+                }
+            }
         }
     }
 

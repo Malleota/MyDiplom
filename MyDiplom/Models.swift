@@ -115,3 +115,9 @@ struct BindSensorIn: Codable {
     let ble_identifier: String
 }
 
+struct SensorDataIn: Codable {
+    let ble_identifier: String
+    let temperature: Double
+    let humidity: Double
+}
+

@@ -212,6 +212,23 @@ class GreenhouseListViewModel: ObservableObject {
                 greenhouses = fetchedGreenhouses
             }
             
+            // Собираем все ble_identifier датчиков, привязанных к теплицам
+            var boundSensorIdentifiers: [String] = []
+            for greenhouse in greenhouses {
+                if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
+                    // Получаем сохраненный ble_identifier для этой теплицы
+                    if let bleIdentifier = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier") {
+                        boundSensorIdentifiers.append(bleIdentifier)
+                        print("📋 Найден привязанный датчик для теплицы \(greenhouse.name): \(bleIdentifier)")
+                    }
+                }
+            }
+            
+            // Обновляем список привязанных датчиков в BLEManager
+            if let bleManager = bleManager {
+                bleManager.updateBoundSensors(boundSensorIdentifiers)
+            }
+            
             // Данные датчиков будут браться из BLE через getSensorDataForGreenhouse
             // Не загружаем данные с сервера
         } catch {

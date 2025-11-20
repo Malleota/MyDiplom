@@ -517,5 +517,71 @@ class APIService {
             throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
         }
     }
+    
+    /// Отправить данные с датчика на сервер
+    func sendSensorData(bleIdentifier: String, temperature: Double, humidity: Double) async throws {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ sendSensorData: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/sensors/data")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let sensorData = SensorDataIn(
+            ble_identifier: bleIdentifier,
+            temperature: temperature,
+            humidity: humidity
+        )
+        
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(sensorData)
+        
+        print("📤 sendSensorData: Отправка данных датчика ble_identifier=\(bleIdentifier), temp=\(temperature), hum=\(humidity)")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("❌ sendSensorData: Неверный ответ сервера")
+                throw APIError(detail: "Неверный ответ сервера")
+            }
+            
+            print("📤 sendSensorData: Статус ответа = \(httpResponse.statusCode)")
+            
+            if httpResponse.statusCode == 204 {
+                print("✅ sendSensorData: Данные успешно отправлены на сервер")
+                return
+            } else if httpResponse.statusCode == 401 {
+                print("❌ sendSensorData: Ошибка 401 - Не авторизован")
+                throw APIError(detail: "Не авторизован")
+            } else if httpResponse.statusCode == 404 {
+                print("⚠️ sendSensorData: Ошибка 404 - Датчик не найден")
+                // Не бросаем ошибку, так как датчик может быть еще не привязан
+                return
+            } else {
+                let decoder = JSONDecoder()
+                if let error = try? decoder.decode(APIError.self, from: data) {
+                    print("❌ sendSensorData: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                    throw APIError(detail: error.detail)
+                }
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("❌ sendSensorData: Ошибка \(httpResponse.statusCode) - ответ: \(responseString)")
+                }
+                throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+            }
+        } catch let urlError as URLError {
+            print("❌ sendSensorData: URLError - \(urlError.localizedDescription)")
+            // Не бросаем ошибку при сетевых проблемах, чтобы не прерывать работу BLE
+            return
+        } catch {
+            print("❌ sendSensorData: Ошибка отправки данных - \(error.localizedDescription)")
+            // Не бросаем ошибку, чтобы не прерывать работу BLE
+            return
+        }
+    }
 }
 
