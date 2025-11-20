@@ -39,29 +39,31 @@ struct LoginView: View {
                     
                     VStack(spacing: 16) {
                         // Поле Email
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Email")
-                                .font(.headline)
-                            TextField("Введите email", text: $email)
-                                .textFieldStyle(.roundedBorder)
-                                .textContentType(.emailAddress)
-                                .autocapitalization(.none)
-                                .keyboardType(.emailAddress)
-                                .onChange(of: email) { _ in
-                                    errorMessage = nil
-                                }
+                        SystemInputField(
+                            title: "Email",
+                            placeholder: "Введите email",
+                            text: $email,
+                            keyboardType: .emailAddress,
+                            textContentType: .emailAddress,
+                            autocapitalization: .never,
+                            submitLabel: .next
+                        )
+                        .onChange(of: email) { _ in
+                            errorMessage = nil
                         }
                         
                         // Поле Пароль
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Пароль")
-                                .font(.headline)
-                            SecureField("Введите пароль", text: $password)
-                                .textFieldStyle(.roundedBorder)
-                                .textContentType(.password)
-                                .onChange(of: password) { _ in
-                                    errorMessage = nil
-                                }
+                        SystemInputField(
+                            title: "Пароль",
+                            placeholder: "Введите пароль",
+                            text: $password,
+                            kind: .secure,
+                            textContentType: .password,
+                            autocapitalization: .never,
+                            submitLabel: .done
+                        )
+                        .onChange(of: password) { _ in
+                            errorMessage = nil
                         }
                         
                         // Сообщение об ошибке

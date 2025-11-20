@@ -61,24 +61,23 @@ struct RegisterView: View {
                         VStack(spacing: 16) {
                             // Поле Имя
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Имя")
-                                    .font(.headline)
-                                TextField("Введите имя", text: $name)
-                                    .textFieldStyle(.roundedBorder)
-                                    .textContentType(.name)
-                                    .autocapitalization(.words)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 5)
-                                            .stroke(nameError != nil ? Color.red : Color.clear, lineWidth: 1)
-                                    )
-                                    .onChange(of: name) { newValue in
-                                        if hasAttemptedSubmit {
-                                            nameError = validateName(newValue, showErrors: true)
-                                        } else {
-                                            nameError = nil
-                                        }
-                                        generalError = nil
+                                SystemInputField(
+                                    title: "Имя",
+                                    placeholder: "Введите имя",
+                                    text: $name,
+                                    state: nameError == nil ? .normal : .error,
+                                    textContentType: .name,
+                                    autocapitalization: .words,
+                                    submitLabel: .next
+                                )
+                                .onChange(of: name) { newValue in
+                                    if hasAttemptedSubmit {
+                                        nameError = validateName(newValue, showErrors: true)
+                                    } else {
+                                        nameError = nil
                                     }
+                                    generalError = nil
+                                }
                                 
                                 if let error = nameError {
                                     Text(error)
@@ -89,25 +88,24 @@ struct RegisterView: View {
                             
                             // Поле Email
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Email")
-                                    .font(.headline)
-                                TextField("Введите email", text: $email)
-                                    .textFieldStyle(.roundedBorder)
-                                    .textContentType(.emailAddress)
-                                    .autocapitalization(.none)
-                                    .keyboardType(.emailAddress)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 5)
-                                            .stroke(emailError != nil ? Color.red : Color.clear, lineWidth: 1)
-                                    )
-                                    .onChange(of: email) { newValue in
-                                        if hasAttemptedSubmit {
-                                            emailError = validateEmail(newValue, showErrors: true)
-                                        } else {
-                                            emailError = nil
-                                        }
-                                        generalError = nil
+                                SystemInputField(
+                                    title: "Email",
+                                    placeholder: "Введите email",
+                                    text: $email,
+                                    state: emailError == nil ? .normal : .error,
+                                    keyboardType: .emailAddress,
+                                    textContentType: .emailAddress,
+                                    autocapitalization: .never,
+                                    submitLabel: .next
+                                )
+                                .onChange(of: email) { newValue in
+                                    if hasAttemptedSubmit {
+                                        emailError = validateEmail(newValue, showErrors: true)
+                                    } else {
+                                        emailError = nil
                                     }
+                                    generalError = nil
+                                }
                                 
                                 if let error = emailError {
                                     Text(error)
@@ -118,24 +116,25 @@ struct RegisterView: View {
                             
                             // Поле Пароль
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Пароль")
-                                    .font(.headline)
-                                SecureField("Введите пароль", text: $password)
-                                    .textFieldStyle(.roundedBorder)
-                                    .textContentType(.newPassword)
-                                    .focused($isPasswordFocused)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 5)
-                                            .stroke(passwordError != nil ? Color.red : Color.clear, lineWidth: 1)
-                                    )
-                                    .onChange(of: password) { newValue in
-                                        if hasAttemptedSubmit {
-                                            passwordError = validatePassword(newValue, showErrors: true)
-                                        } else {
-                                            passwordError = nil
-                                        }
-                                        generalError = nil
+                                SystemInputField(
+                                    title: "Пароль",
+                                    placeholder: "Введите пароль",
+                                    text: $password,
+                                    kind: .secure,
+                                    state: passwordError == nil ? .normal : .error,
+                                    textContentType: .newPassword,
+                                    autocapitalization: .never,
+                                    submitLabel: .done,
+                                    onFocusChange: { isPasswordFocused = $0 }
+                                )
+                                .onChange(of: password) { newValue in
+                                    if hasAttemptedSubmit {
+                                        passwordError = validatePassword(newValue, showErrors: true)
+                                    } else {
+                                        passwordError = nil
                                     }
+                                    generalError = nil
+                                }
                                 
                                 // Подсказка зеленым цветом, когда поле в фокусе и есть хотя бы 1 символ, но пароль еще не валиден
                                 if isPasswordFocused && !password.isEmpty && validatePassword(password, showErrors: true) != nil {
