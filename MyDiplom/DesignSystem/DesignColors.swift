@@ -15,6 +15,8 @@ enum DesignColor {
     enum Fills {
         static let tertiar = Color("FillsTertiar")
     }
+    
+    static let mainAccent = Color("MainAccent")
 }
 
 

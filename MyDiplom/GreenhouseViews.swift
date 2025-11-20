@@ -117,23 +117,29 @@ struct GreenhouseCardView: View {
                 
                 // Краткая сводка
                 VStack(alignment: .leading, spacing: 4) {
-                    if let sensor = sensorData {
-                        // Есть данные с датчика
+                    if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
+                        // Датчик подключен - показываем данные или "--"
                         HStack(spacing: 12) {
-                            Label(String(format: "%.1f°C", sensor.temperature), systemImage: "thermometer")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
+                            Label(
+                                sensorData != nil ? String(format: "%.1f°C", sensorData!.temperature) : "--°C",
+                                systemImage: "thermometer"
+                            )
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
                             
-                            Label(String(format: "%.0f%%", sensor.humidity), systemImage: "humidity")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
+                            Label(
+                                sensorData != nil ? String(format: "%.0f%%", sensorData!.humidity) : "--%",
+                                systemImage: "humidity"
+                            )
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
                         }
                     }
                     
                     // Время до следующего полива (заглушка)
                     Label("Полив через 2 дня", systemImage: "drop.fill")
                         .font(.subheadline)
-                        .foregroundColor(.blue)
+                        .foregroundColor(DesignColor.mainAccent)
                 }
             }
             
@@ -214,48 +220,77 @@ class GreenhouseListViewModel: ObservableObject {
     }
     
     func getSensorDataForGreenhouse(_ greenhouse: GreenhouseOut, bleManager: BLEManager) -> SensorReadingOut? {
+        // Проверяем, есть ли sensor_id
+        guard let sensorId = greenhouse.sensor_id, !sensorId.isEmpty else {
+            return nil
+        }
+        
         // Сначала проверяем, подключен ли датчик через BLE
-        guard let connectedDevice = bleManager.lastConnectedDevice,
-              let bleSensorData = bleManager.sensors[connectedDevice.id] else {
-            // Если не подключен через BLE, используем данные с сервера
-            return sensorData[greenhouse.id]
+        if let connectedDevice = bleManager.lastConnectedDevice,
+           let bleSensorData = bleManager.sensors[connectedDevice.id] {
+            // Проверяем, совпадает ли UUID подключенного устройства с ble_identifier датчика этой теплицы
+            let connectedDeviceUUID = connectedDevice.id.uuidString
+            
+            // Получаем сохраненный ble_identifier для этой теплицы
+            let savedBLEIdentifier = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+            
+            // Если есть сохраненный ble_identifier и он совпадает с подключенным устройством
+            if let savedBLE = savedBLEIdentifier, savedBLE == connectedDeviceUUID {
+                print("📡 Используем данные из BLE для теплицы \(greenhouse.name) (совпадение по ble_identifier)")
+                return SensorReadingOut(
+                    id: "",
+                    sensor_id: greenhouse.sensor_id ?? "",
+                    greenhouse_id: greenhouse.id,
+                    temperature: bleSensorData.temperature,
+                    humidity: bleSensorData.humidity,
+                    created_at: ISO8601DateFormatter().string(from: Date())
+                )
+            }
+            
+            // Если нет сохраненного ble_identifier, но устройство подключено и у теплицы есть sensor_id
+            // Предполагаем, что это тот же датчик (для обратной совместимости)
+            if savedBLEIdentifier == nil {
+                print("📡 Используем данные из BLE для теплицы \(greenhouse.name) (нет сохраненного ble_identifier)")
+                return SensorReadingOut(
+                    id: "",
+                    sensor_id: greenhouse.sensor_id ?? "",
+                    greenhouse_id: greenhouse.id,
+                    temperature: bleSensorData.temperature,
+                    humidity: bleSensorData.humidity,
+                    created_at: ISO8601DateFormatter().string(from: Date())
+                )
+            }
         }
         
-        // Проверяем, совпадает ли UUID подключенного устройства с ble_identifier датчика этой теплицы
-        let connectedDeviceUUID = connectedDevice.id.uuidString
-        
-        // Получаем сохраненный ble_identifier для этой теплицы
-        let savedBLEIdentifier = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
-        
-        // Если есть сохраненный ble_identifier и он совпадает с подключенным устройством
-        if let savedBLE = savedBLEIdentifier, savedBLE == connectedDeviceUUID {
-            print("📡 Используем данные из BLE для теплицы \(greenhouse.name) (совпадение по ble_identifier)")
-            return SensorReadingOut(
-                id: "",
-                sensor_id: greenhouse.sensor_id ?? "",
-                greenhouse_id: greenhouse.id,
-                temperature: bleSensorData.temperature,
-                humidity: bleSensorData.humidity,
-                created_at: ISO8601DateFormatter().string(from: Date())
-            )
+        // Если не подключен через BLE, используем данные с сервера (если они есть)
+        if let serverData = sensorData[greenhouse.id] {
+            return serverData
         }
         
-        // Если нет сохраненного ble_identifier, но устройство подключено и у теплицы есть sensor_id
-        // Предполагаем, что это тот же датчик (для обратной совместимости)
-        if savedBLEIdentifier == nil && greenhouse.sensor_id != nil {
-            print("📡 Используем данные из BLE для теплицы \(greenhouse.name) (нет сохраненного ble_identifier)")
-            return SensorReadingOut(
-                id: "",
-                sensor_id: greenhouse.sensor_id ?? "",
-                greenhouse_id: greenhouse.id,
-                temperature: bleSensorData.temperature,
-                humidity: bleSensorData.humidity,
-                created_at: ISO8601DateFormatter().string(from: Date())
-            )
+        // Если данных нет, но sensor_id есть, загружаем с сервера асинхронно
+        Task {
+            await loadSensorDataForGreenhouse(greenhouse)
         }
         
-        // Если ble_identifier не совпадает, не показываем данные
+        // Возвращаем nil, данные будут загружены асинхронно
         return nil
+    }
+    
+    private func loadSensorDataForGreenhouse(_ greenhouse: GreenhouseOut) async {
+        guard let sensorId = greenhouse.sensor_id, !sensorId.isEmpty else {
+            return
+        }
+        
+        do {
+            if let serverData = try await APIService.shared.getCurrentSensorData(greenhouseId: greenhouse.id) {
+                print("📡 loadSensorDataForGreenhouse: Загружены данные с сервера для теплицы \(greenhouse.name)")
+                await MainActor.run {
+                    sensorData[greenhouse.id] = serverData
+                }
+            }
+        } catch {
+            print("❌ loadSensorDataForGreenhouse: Ошибка загрузки данных с сервера: \(error)")
+        }
     }
 }
 
@@ -269,7 +304,7 @@ struct CreateGreenhouseView: View {
             VStack(spacing: 20) {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 60))
-                    .foregroundColor(.blue)
+                    .foregroundColor(DesignColor.mainAccent)
                 
                 Text("Создание теплицы")
                     .font(.title2)
@@ -356,19 +391,18 @@ struct GreenhouseDetailView: View {
                         
                         // Блок "Текущие данные"
                         VStack(alignment: .leading, spacing: 16) {
-                            Text("Текущие данные")
-                                .font(.headline)
-                                .padding(.horizontal)
+                          //  Text("Текущие данные")
+                               // .font(.headline)
+                               // .padding(.horizontal)
                             
-                            if let sensorId = greenhouse.sensor_id, let sensor = sensorData {
-                                // Датчик подключен
+                            if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
+                                // Датчик подключен (sensor_id не пустой)
                                 VStack(spacing: 16) {
                                     // Название датчика, батарея и кнопка отвязать
                                     HStack {
-                                        Text("Датчик")
-                                            .font(.subheadline)
-                                            .fontWeight(.medium)
-                                        
+                                        Text("Текущие данные")
+                                            .font(.title2)
+                                
                                         Spacer()
                                         
                                         // Батарея из BLE данных, если доступна
@@ -412,7 +446,7 @@ struct GreenhouseDetailView: View {
                                         SensorDataCard(
                                             icon: "thermometer",
                                             title: "Температура",
-                                            value: String(format: "%.1f", sensor.temperature),
+                                            value: sensorData != nil ? String(format: "%.1f", sensorData!.temperature) : "--",
                                             unit: "°C"
                                         )
                                         
@@ -420,7 +454,7 @@ struct GreenhouseDetailView: View {
                                         SensorDataCard(
                                             icon: "drop.fill",
                                             title: "Влажность",
-                                            value: String(format: "%.0f", sensor.humidity),
+                                            value: sensorData != nil ? String(format: "%.0f", sensorData!.humidity) : "--",
                                             unit: "%"
                                         )
                                     }
@@ -443,7 +477,7 @@ struct GreenhouseDetailView: View {
                                             .foregroundColor(.white)
                                             .padding(.horizontal, 24)
                                             .padding(.vertical, 12)
-                                            .background(Color.blue)
+                                            .background(DesignColor.mainAccent)
                                             .cornerRadius(8)
                                     }
                                     
@@ -513,9 +547,18 @@ struct GreenhouseDetailView: View {
                 greenhouse = fetched
             }
             
-            // Обновляем данные датчика из BLE, если он подключен
+            // Обновляем данные датчика из BLE, если он подключен, или загружаем с сервера
+            var hasSensorData = false
             await MainActor.run {
                 updateSensorDataFromBLE()
+                hasSensorData = sensorData != nil
+            }
+            
+            // Если BLE данные недоступны, но есть sensor_id, загружаем данные с сервера
+            if let sensorId = fetched.sensor_id,
+               !sensorId.isEmpty,
+               !hasSensorData {
+                await loadSensorDataFromServer()
             }
             
             await MainActor.run {
@@ -529,13 +572,51 @@ struct GreenhouseDetailView: View {
         }
     }
     
+    private func loadSensorDataFromServer() async {
+        var currentGreenhouse: GreenhouseOut?
+        await MainActor.run {
+            currentGreenhouse = greenhouse
+        }
+        
+        guard let greenhouse = currentGreenhouse,
+              let sensorId = greenhouse.sensor_id,
+              !sensorId.isEmpty else {
+            return
+        }
+        
+        do {
+            if let serverData = try await APIService.shared.getCurrentSensorData(greenhouseId: greenhouse.id) {
+                print("📡 loadSensorDataFromServer: Загружены данные с сервера для теплицы \(greenhouse.name)")
+                await MainActor.run {
+                    sensorData = serverData
+                }
+            } else {
+                print("⚠️ loadSensorDataFromServer: Данные с сервера недоступны для теплицы \(greenhouse.name)")
+            }
+        } catch {
+            print("❌ loadSensorDataFromServer: Ошибка загрузки данных с сервера: \(error)")
+        }
+    }
+    
     private func updateSensorDataFromBLE() {
         guard let greenhouse = greenhouse,
-              greenhouse.sensor_id != nil,
-              let connectedDevice = bleManager.lastConnectedDevice,
-              let bleSensorData = bleManager.sensors[connectedDevice.id] else {
-            // Если датчик не подключен, очищаем данные
+              let sensorId = greenhouse.sensor_id,
+              !sensorId.isEmpty else {
+            // Если нет sensor_id, очищаем данные
             sensorData = nil
+            return
+        }
+        
+        // Проверяем, есть ли подключенное устройство и данные BLE
+        guard let connectedDevice = bleManager.lastConnectedDevice,
+              let bleSensorData = bleManager.sensors[connectedDevice.id] else {
+            // Если BLE не подключен, не очищаем данные (они могут быть загружены с сервера)
+            // Только если данных вообще нет, попробуем загрузить с сервера
+            if sensorData == nil {
+                Task {
+                    await loadSensorDataFromServer()
+                }
+            }
             return
         }
         
@@ -570,9 +651,15 @@ struct GreenhouseDetailView: View {
                 created_at: ISO8601DateFormatter().string(from: Date())
             )
         } else {
-            // Если ble_identifier не совпадает, очищаем данные
+            // Если ble_identifier не совпадает, не используем BLE данные
+            // Но не очищаем sensorData, так как данные могут быть с сервера
             print("⚠️ updateSensorDataFromBLE: UUID не совпадает для теплицы \(greenhouse.name) (saved: \(savedBLEIdentifier ?? "nil"), connected: \(connectedDeviceUUID))")
-            sensorData = nil
+            // Если данных нет, попробуем загрузить с сервера
+            if sensorData == nil {
+                Task {
+                    await loadSensorDataFromServer()
+                }
+            }
         }
     }
     
@@ -711,23 +798,33 @@ struct SensorDataCard: View {
     let unit: String
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(.blue)
+        HStack(alignment: .center, spacing: 12) {
             
-            Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value)
+            ZStack {
+                Circle()
+                    .fill(DesignColor.mainAccent.opacity(0.1))
+                    .frame(width: 40, height: 40)
+                
+                Image(systemName: icon)
                     .font(.title2)
-                    .fontWeight(.semibold)
-                Text(unit)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(DesignColor.mainAccent)
             }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
+                    Text(value)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text(unit)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                }
+            }
+            .padding(.leading,8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()

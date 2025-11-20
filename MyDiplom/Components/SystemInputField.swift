@@ -123,7 +123,7 @@ struct SystemInputField: View {
     private var borderColor: Color {
         switch state {
         case .normal:
-            return isFocused ? Color.accentColor.opacity(0.6) : DesignColor.Fills.tertiar
+            return isFocused ? DesignColor.mainAccent.opacity(0.6) : DesignColor.Fills.tertiar
         case .error:
             return Color.red
         case .success:

@@ -167,7 +167,7 @@ struct RegisterView: View {
                                     .foregroundColor(.white)
                                     .frame(maxWidth: .infinity)
                                     .frame(height: 50)
-                                    .background(isFormValid ? Color.blue : Color.gray)
+                                    .background(isFormValid ? DesignColor.mainAccent : Color.gray)
                                     .cornerRadius(10)
                             }
                             .disabled(!isFormValid || isLoading)
@@ -182,7 +182,7 @@ struct RegisterView: View {
                             }) {
                                 Text("Войти")
                                     .font(.headline)
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(DesignColor.mainAccent)
                             }
                             .padding(.top, 8)
                         }
