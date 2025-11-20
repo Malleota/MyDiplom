@@ -692,5 +692,139 @@ class APIService {
             throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
         }
     }
+    
+    // MARK: - Plant Instances
+    
+    /// Получить список растений в теплице
+    func getPlantInstances(greenhouseId: String) async throws -> [PlantInstanceOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getPlantInstances: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/greenhouses/\(greenhouseId)/plants")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("🌱 getPlantInstances: Запрос списка растений для теплицы \(greenhouseId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getPlantInstances: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🌱 getPlantInstances: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let plants = try decoder.decode([PlantInstanceOut].self, from: data)
+            print("✅ getPlantInstances: Получено \(plants.count) растений")
+            return plants
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getPlantInstances: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ getPlantInstances: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен к этой теплице")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ getPlantInstances: Ошибка 404 - Теплица не найдена")
+            throw APIError(detail: "Теплица не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getPlantInstances: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Получить данные о следующем поливе для каждого растения в теплице
+    func getNextWateringForPlants(greenhouseId: String) async throws -> [NextWateringOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getNextWateringForPlants: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/greenhouses/\(greenhouseId)/plants/next-watering")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("💧 getNextWateringForPlants: Запрос данных о поливе для растений в теплице \(greenhouseId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getNextWateringForPlants: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("💧 getNextWateringForPlants: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let nextWaterings = try decoder.decode([NextWateringOut].self, from: data)
+            print("✅ getNextWateringForPlants: Получено \(nextWaterings.count) записей о поливе")
+            return nextWaterings
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getNextWateringForPlants: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 404 {
+            print("⚠️ getNextWateringForPlants: Данные не найдены (404)")
+            return []
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getNextWateringForPlants: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Получить список всех типов растений
+    func getPlantTypes() async throws -> [PlantTypeOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getPlantTypes: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/plant-types")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("🌿 getPlantTypes: Запрос списка типов растений")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getPlantTypes: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🌿 getPlantTypes: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let plantTypes = try decoder.decode([PlantTypeOut].self, from: data)
+            print("✅ getPlantTypes: Получено \(plantTypes.count) типов растений")
+            return plantTypes
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getPlantTypes: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getPlantTypes: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
 }
 

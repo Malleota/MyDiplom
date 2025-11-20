@@ -439,6 +439,69 @@ struct GreenhouseDetailView: View {
     @State private var isUnbinding = false
     @State private var errorMessage: String?
     @State private var isScreenRegistered = false
+    @State private var plantInstances: [PlantInstanceOut] = []
+    @State private var plantTypes: [String: PlantTypeOut] = [:] // plant_type_id -> PlantTypeOut
+    @State private var plantWaterings: [String: NextWateringOut] = [:] // plant_instance_id -> NextWateringOut
+    @State private var isLoadingPlants = false
+    
+    // Отсортированный список растений по поливу
+    private var sortedPlantInstances: [PlantInstanceOut] {
+        plantInstances.sorted { plant1, plant2 in
+            let watering1 = plantWaterings[plant1.id]
+            let watering2 = plantWaterings[plant2.id]
+            
+            // Если у обоих есть данные о поливе
+            if let w1 = watering1, let w2 = watering2 {
+                // Просроченные поливы - вверху
+                if w1.is_overdue && !w2.is_overdue {
+                    return true
+                }
+                if !w1.is_overdue && w2.is_overdue {
+                    return false
+                }
+                
+                // Если оба просрочены, сортируем по количеству дней просрочки (больше = выше)
+                if w1.is_overdue && w2.is_overdue {
+                    let days1 = abs(w1.days_until ?? Int.max)
+                    let days2 = abs(w2.days_until ?? Int.max)
+                    return days1 > days2
+                }
+                
+                // Полив сегодня (days_until == 0) - после просроченных
+                if let days1 = w1.days_until, let days2 = w2.days_until {
+                    if days1 == 0 && days2 != 0 {
+                        return true
+                    }
+                    if days1 != 0 && days2 == 0 {
+                        return false
+                    }
+                    // Оба имеют days_until, сортируем по возрастанию
+                    return days1 < days2
+                }
+                
+                // Если у одного есть days_until, а у другого нет
+                if w1.days_until != nil && w2.days_until == nil {
+                    return true
+                }
+                if w1.days_until == nil && w2.days_until != nil {
+                    return false
+                }
+            }
+            
+            // Если только у первого есть данные о поливе
+            if watering1 != nil && watering2 == nil {
+                return true
+            }
+            
+            // Если только у второго есть данные о поливе
+            if watering1 == nil && watering2 != nil {
+                return false
+            }
+            
+            // Если у обоих нет данных, сохраняем исходный порядок
+            return false
+        }
+    }
     
     var body: some View {
         Group {
@@ -595,6 +658,43 @@ struct GreenhouseDetailView: View {
                             }
                         }
                         .padding(.top, 8)
+                        
+                        // Список растений
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Растения")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .padding(.horizontal)
+                            
+                            if isLoadingPlants {
+                                ProgressView("Загрузка растений...")
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                            } else if plantInstances.isEmpty {
+                                VStack(spacing: 12) {
+                                    Image(systemName: "leaf.fill")
+                                        .font(.system(size: 40))
+                                        .foregroundColor(.gray)
+                                    Text("Нет растений")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 32)
+                            } else {
+                                LazyVStack(spacing: 12) {
+                                    ForEach(sortedPlantInstances) { plantInstance in
+                                        PlantCardView(
+                                            plantInstance: plantInstance,
+                                            plantType: plantTypes[plantInstance.plant_type_id],
+                                            nextWatering: plantWaterings[plantInstance.id]
+                                        )
+                                    }
+                                }
+                                .padding(.horizontal)
+                            }
+                        }
+                        .padding(.top, 8)
                     }
                 }
             } else {
@@ -614,6 +714,7 @@ struct GreenhouseDetailView: View {
         }
         .task {
             await loadGreenhouse()
+            await loadPlants()
         }
         .onChange(of: bleManager.lastConnectedDevice?.id) { _ in
             // Обновляем данные при изменении подключенного устройства
@@ -669,6 +770,47 @@ struct GreenhouseDetailView: View {
         }
     }
     
+    
+    private func loadPlants() async {
+        isLoadingPlants = true
+        defer { isLoadingPlants = false }
+        
+        do {
+            // Загружаем список растений
+            let instances = try await APIService.shared.getPlantInstances(greenhouseId: greenhouseId)
+            await MainActor.run {
+                plantInstances = instances
+            }
+            
+            // Загружаем данные о поливе для каждого растения
+            let waterings = try await APIService.shared.getNextWateringForPlants(greenhouseId: greenhouseId)
+            var wateringDict: [String: NextWateringOut] = [:]
+            for watering in waterings {
+                if let plantInstanceId = watering.plant_instance_id {
+                    wateringDict[plantInstanceId] = watering
+                }
+            }
+            await MainActor.run {
+                plantWaterings = wateringDict
+            }
+            
+            // Загружаем информацию о типах растений
+            do {
+                let allPlantTypes = try await APIService.shared.getPlantTypes()
+                var typesDict: [String: PlantTypeOut] = [:]
+                for plantType in allPlantTypes {
+                    typesDict[plantType.id] = plantType
+                }
+                await MainActor.run {
+                    plantTypes = typesDict
+                }
+            } catch {
+                print("❌ Ошибка загрузки типов растений: \(error)")
+            }
+        } catch {
+            print("❌ Ошибка загрузки растений: \(error)")
+        }
+    }
     
     private func loadGreenhouse() async {
         do {
@@ -996,6 +1138,89 @@ struct SensorDataCard: View {
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(12)
+    }
+}
+
+// MARK: - Plant Card View
+
+struct PlantCardView: View {
+    let plantInstance: PlantInstanceOut
+    let plantType: PlantTypeOut?
+    let nextWatering: NextWateringOut?
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Картинка растения
+            if let plantType = plantType, let imageUrl = plantType.image_url, let url = URL(string: imageUrl) {
+                AsyncImage(url: url) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.gray.opacity(0.3))
+                }
+                .frame(width: 60, height: 60)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            } else {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 60, height: 60)
+                    .overlay(
+                        Image(systemName: "leaf.fill")
+                            .foregroundColor(.gray)
+                            .font(.system(size: 24))
+                    )
+            }
+            
+            // Информация о растении
+            VStack(alignment: .leading, spacing: 6) {
+                // Заголовок (название растения)
+                Text(plantType?.name ?? "Растение")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                // Данные о поливе
+                if let nextWatering = nextWatering {
+                    if let daysUntil = nextWatering.days_until {
+                        // Есть интервал, показываем дни до следующего полива
+                        if nextWatering.is_overdue {
+                            Label("Полив просрочен на \(abs(daysUntil)) дн.", systemImage: "drop.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.red)
+                        } else if daysUntil == 0 {
+                            Label("Полив сегодня", systemImage: "drop.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.orange)
+                        } else {
+                            Label("Полив через \(daysUntil) дн.", systemImage: "drop.fill")
+                                .font(.subheadline)
+                                .foregroundColor(DesignColor.mainAccent)
+                        }
+                    } else if let lastWateringDate = nextWatering.next_watering_date {
+                        // Нет интервала, но есть дата последнего полива
+                        Label("Последний полив: \(formatDate(lastWateringDate))", systemImage: "drop.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    } else {
+                        // Нет данных о поливе
+                        Label("Полив не запланирован", systemImage: "drop.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    Label("Загрузка...", systemImage: "drop.fill")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Spacer()
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
     }
 }
 

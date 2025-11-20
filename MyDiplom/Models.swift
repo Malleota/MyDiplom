@@ -150,3 +150,26 @@ struct WaterEventCreate: Codable {
     let comment: String?
 }
 
+// MARK: - Plant Models
+
+struct PlantTypeOut: Codable, Identifiable {
+    let id: String
+    let name: String
+    let description: String?
+    let image_url: String?
+    let temp_min: Double?
+    let temp_max: Double?
+    let humidity_min: Double?
+    let humidity_max: Double?
+    let watering_interval_days: Int?
+    let fertilizing_interval_days: Int?
+}
+
+struct PlantInstanceOut: Codable, Identifiable {
+    let id: String
+    let greenhouse_id: String
+    let plant_type_id: String
+    let quantity: Int
+    let note: String?
+}
+
