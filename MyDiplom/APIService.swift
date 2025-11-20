@@ -583,5 +583,114 @@ class APIService {
             return
         }
     }
+    
+    // MARK: - Watering Events
+    
+    /// Получить информацию о следующем поливе для теплицы
+    func getNextWatering(greenhouseId: String) async throws -> NextWateringOut? {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getNextWatering: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/greenhouses/\(greenhouseId)/next-watering")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("📡 getNextWatering: Запрос данных о следующем поливе для теплицы \(greenhouseId)")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("❌ getNextWatering: Неверный ответ сервера")
+                return nil
+            }
+            
+            print("📡 getNextWatering: Статус ответа = \(httpResponse.statusCode)")
+            
+            if httpResponse.statusCode == 200 {
+                let decoder = JSONDecoder()
+                let nextWatering = try decoder.decode(NextWateringOut.self, from: data)
+                print("✅ getNextWatering: Данные о следующем поливе получены: days_until=\(nextWatering.days_until ?? -1)")
+                return nextWatering
+            } else if httpResponse.statusCode == 404 {
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("⚠️ getNextWatering: Данные не найдены (404), ответ: \(responseString)")
+                }
+                return nil
+            } else {
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("⚠️ getNextWatering: Ошибка \(httpResponse.statusCode), ответ: \(responseString)")
+                }
+                return nil
+            }
+        } catch {
+            print("❌ getNextWatering: Исключение при запросе: \(error.localizedDescription)")
+            return nil
+        }
+    }
+    
+    /// Получить список событий полива
+    func getWateringEvents(greenhouseId: String? = nil, dateFrom: String? = nil, dateTo: String? = nil) async throws -> [WaterEventOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getWateringEvents: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        var urlComponents = URLComponents(string: "\(baseURL)/watering-events")!
+        var queryItems: [URLQueryItem] = []
+        
+        if let greenhouseId = greenhouseId {
+            queryItems.append(URLQueryItem(name: "greenhouse_id", value: greenhouseId))
+        }
+        if let dateFrom = dateFrom {
+            queryItems.append(URLQueryItem(name: "date_from", value: dateFrom))
+        }
+        if let dateTo = dateTo {
+            queryItems.append(URLQueryItem(name: "date_to", value: dateTo))
+        }
+        
+        if !queryItems.isEmpty {
+            urlComponents.queryItems = queryItems
+        }
+        
+        guard let url = urlComponents.url else {
+            throw APIError(detail: "Неверный URL")
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("📡 getWateringEvents: Запрос событий полива")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getWateringEvents: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📡 getWateringEvents: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let events = try decoder.decode([WaterEventOut].self, from: data)
+            print("✅ getWateringEvents: Получено \(events.count) событий полива")
+            return events
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getWateringEvents: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getWateringEvents: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
 }
 

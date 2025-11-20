@@ -121,3 +121,32 @@ struct SensorDataIn: Codable {
     let humidity: Double
 }
 
+// MARK: - Watering Models
+
+struct WaterEventOut: Codable, Identifiable {
+    let id: String
+    let greenhouse_id: String
+    let user_id: String
+    let plant_instance_id: String?
+    let type: String  // "watering" или "fertilizing"
+    let created_at: String
+    let comment: String?
+}
+
+struct NextWateringOut: Codable {
+    let greenhouse_id: String
+    let plant_instance_id: String?
+    let plant_name: String?
+    let next_watering_date: String?
+    let days_until: Int?
+    let is_overdue: Bool
+}
+
+struct WaterEventCreate: Codable {
+    let greenhouse_id: String
+    let user_id: String?
+    let plant_instance_id: String?
+    let type: String  // "watering" или "fertilizing"
+    let comment: String?
+}
+

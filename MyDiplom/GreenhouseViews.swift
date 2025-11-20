@@ -14,6 +14,7 @@ import CoreBluetooth
 struct GreenhouseListView: View {
     @EnvironmentObject var bleManager: BLEManager
     @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
     @StateObject private var viewModel = GreenhouseListViewModel()
     @State private var showCreateGreenhouse = false
     
@@ -43,7 +44,8 @@ struct GreenhouseListView: View {
                                     .environmentObject(sensorDataManager)) {
                                     GreenhouseCardView(
                                         greenhouse: greenhouse,
-                                        sensorData: viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: bleManager, sensorDataManager: sensorDataManager)
+                                        sensorData: viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: bleManager, sensorDataManager: sensorDataManager),
+                                        nextWatering: wateringDataManager.getNextWatering(greenhouseId: greenhouse.id)
                                     )
                                 }
                                 .buttonStyle(PlainButtonStyle())
@@ -69,9 +71,17 @@ struct GreenhouseListView: View {
             }
             .task {
                 await viewModel.loadGreenhouses(bleManager: bleManager)
+                // Загружаем данные о поливах для всех теплиц
+                for greenhouse in viewModel.greenhouses {
+                    await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
+                }
             }
             .refreshable {
                 await viewModel.loadGreenhouses(bleManager: bleManager)
+                // Обновляем данные о поливах для всех теплиц
+                for greenhouse in viewModel.greenhouses {
+                    await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GreenhouseUpdated"))) { _ in
                 // НЕ обновляем список при обновлении данных датчика, чтобы не закрывать открытый экран
@@ -87,15 +97,31 @@ struct GreenhouseListView: View {
                 checkAndRegisterScreen()
             }
             .onDisappear {
-                // Отменяем регистрацию экрана
-                sensorDataManager.unregisterActiveScreen()
+                // Отменяем регистрацию экрана только если мы действительно выходим (не переходим на детальный экран)
+                // В NavigationView список остается активным при переходе на детальный экран,
+                // поэтому onDisappear вызывается только при полном выходе из NavigationView
+                if isScreenRegistered {
+                    sensorDataManager.unregisterActiveScreen()
+                    isScreenRegistered = false
+                }
             }
-            .onChange(of: viewModel.greenhouses) { _ in
+            .onChange(of: viewModel.greenhouses) { newGreenhouses in
                 // Проверяем и регистрируем экран при изменении списка теплиц
                 checkAndRegisterScreen()
+                // Загружаем данные о поливах для новых теплиц
+                Task {
+                    for greenhouse in newGreenhouses {
+                        await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NextWateringUpdated"))) { _ in
+                // Обновляем UI при обновлении данных о поливах
             }
         }
     }
+    
+    @State private var isScreenRegistered = false
     
     private func checkAndRegisterScreen() {
         // Регистрируем экран, если есть теплицы с sensor_id
@@ -105,8 +131,12 @@ struct GreenhouseListView: View {
             }
             return true
         }
-        if hasSensors {
+        if hasSensors && !isScreenRegistered {
             sensorDataManager.registerActiveScreen()
+            isScreenRegistered = true
+        } else if !hasSensors && isScreenRegistered {
+            sensorDataManager.unregisterActiveScreen()
+            isScreenRegistered = false
         }
     }
 }
@@ -116,6 +146,7 @@ struct GreenhouseListView: View {
 struct GreenhouseCardView: View {
     let greenhouse: GreenhouseOut
     let sensorData: SensorReadingOut?
+    let nextWatering: NextWateringOut?
     
     var body: some View {
         HStack(spacing: 16) {
@@ -168,10 +199,40 @@ struct GreenhouseCardView: View {
                         }
                     }
                     
-                    // Время до следующего полива (заглушка)
-                    Label("Полив через 2 дня", systemImage: "drop.fill")
-                        .font(.subheadline)
-                        .foregroundColor(DesignColor.mainAccent)
+                    // Время до следующего полива
+                    if let nextWatering = nextWatering {
+                        if let daysUntil = nextWatering.days_until {
+                            // Есть интервал, показываем дни до следующего полива
+                            if nextWatering.is_overdue {
+                                Label("Полив просрочен на \(abs(daysUntil)) дн.", systemImage: "drop.fill")
+                                    .font(.subheadline)
+                                    .foregroundColor(.red)
+                            } else if daysUntil == 0 {
+                                Label("Полив сегодня", systemImage: "drop.fill")
+                                    .font(.subheadline)
+                                    .foregroundColor(.orange)
+                            } else {
+                                Label("Полив через \(daysUntil) дн.", systemImage: "drop.fill")
+                                    .font(.subheadline)
+                                    .foregroundColor(DesignColor.mainAccent)
+                            }
+                        } else if let lastWateringDate = nextWatering.next_watering_date {
+                            // Нет интервала, но есть дата последнего полива (полив по всей теплице)
+                            // Показываем дату последнего полива
+                            Label("Последний полив: \(formatDate(lastWateringDate))", systemImage: "drop.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        } else {
+                            // Нет данных о поливе
+                            Label("Полив не запланирован", systemImage: "drop.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        Label("Загрузка...", systemImage: "drop.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
             
@@ -377,6 +438,7 @@ struct GreenhouseDetailView: View {
     @State private var isBinding = false
     @State private var isUnbinding = false
     @State private var errorMessage: String?
+    @State private var isScreenRegistered = false
     
     var body: some View {
         Group {
@@ -577,14 +639,23 @@ struct GreenhouseDetailView: View {
         .onChange(of: greenhouse?.sensor_id) { newSensorId in
             // Обновляем регистрацию при изменении sensor_id
             if let sensorId = newSensorId, !sensorId.isEmpty {
-                sensorDataManager.registerActiveScreen()
+                if !isScreenRegistered {
+                    sensorDataManager.registerActiveScreen()
+                    isScreenRegistered = true
+                }
             } else {
-                sensorDataManager.unregisterActiveScreen()
+                if isScreenRegistered {
+                    sensorDataManager.unregisterActiveScreen()
+                    isScreenRegistered = false
+                }
             }
         }
         .onDisappear {
             // Отменяем регистрацию экрана
-            sensorDataManager.unregisterActiveScreen()
+            if isScreenRegistered {
+                sensorDataManager.unregisterActiveScreen()
+                isScreenRegistered = false
+            }
         }
     }
     
@@ -607,12 +678,8 @@ struct GreenhouseDetailView: View {
                 greenhouse = fetched
             }
             
-            // Регистрируем экран, если у теплицы есть sensor_id
-            if let sensorId = fetched.sensor_id, !sensorId.isEmpty {
-                await MainActor.run {
-                    sensorDataManager.registerActiveScreen()
-                }
-            }
+            // Регистрация экрана произойдет автоматически через onChange(of: greenhouse?.sensor_id)
+            // при установке значения greenhouse
             
             // Обновляем данные датчика из BLE, если он подключен, или загружаем с сервера
             var hasSensorData = false
@@ -861,6 +928,31 @@ struct GreenhouseDetailView: View {
             }
         }
     }
+}
+
+// MARK: - Sensor Data Card
+
+// MARK: - Helper Functions
+
+private func parseDate(_ dateString: String) -> Date? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = formatter.date(from: dateString) {
+        return date
+    }
+    // Попробуем без дробных секунд
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter.date(from: dateString)
+}
+
+private func formatDate(_ dateString: String) -> String {
+    guard let date = parseDate(dateString) else {
+        return "выполнен"
+    }
+    let formatter = DateFormatter()
+    formatter.dateStyle = .short
+    formatter.timeStyle = .none
+    return formatter.string(from: date)
 }
 
 // MARK: - Sensor Data Card
