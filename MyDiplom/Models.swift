@@ -57,7 +57,7 @@ struct AvatarUpdate: Codable {
 
 // MARK: - Greenhouse Models
 
-struct GreenhouseOut: Codable, Identifiable {
+struct GreenhouseOut: Codable, Identifiable, Equatable {
     let id: String
     let name: String
     let description: String?

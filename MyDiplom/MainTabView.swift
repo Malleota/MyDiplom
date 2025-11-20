@@ -11,6 +11,7 @@ import CoreBluetooth
 struct MainTabView: View {
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var bleManager = BLEManager()
+    @EnvironmentObject var sensorDataManager: SensorDataManager
     @State private var selectedTab = 0
     
     var isAdmin: Bool {
@@ -37,6 +38,7 @@ struct MainTabView: View {
             // Теплицы
             GreenhousesView()
                 .environmentObject(bleManager)
+                .environmentObject(sensorDataManager)
                 .tabItem {
                     Label("Теплицы", systemImage: "building.2.fill")
                 }

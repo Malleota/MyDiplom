@@ -334,6 +334,15 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                         temperature: sensor.temperature,
                         humidity: sensor.humidity
                     )
+                    // Отправляем уведомление об успешной отправке данных
+                    // Это позволит запросить обновленные данные с сервера
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("SensorDataSent"),
+                            object: nil,
+                            userInfo: ["ble_identifier": bleIdentifier]
+                        )
+                    }
                 } catch {
                     // Ошибка уже обработана в sendSensorData, просто логируем
                     print("⚠️ Не удалось отправить данные на сервер: \(error.localizedDescription)")

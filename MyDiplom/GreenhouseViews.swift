@@ -13,6 +13,7 @@ import CoreBluetooth
 
 struct GreenhouseListView: View {
     @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
     @StateObject private var viewModel = GreenhouseListViewModel()
     @State private var showCreateGreenhouse = false
     
@@ -37,10 +38,12 @@ struct GreenhouseListView: View {
                     ScrollView {
                         LazyVStack(spacing: 16) {
                             ForEach(viewModel.greenhouses, id: \.id) { greenhouse in
-                                NavigationLink(destination: GreenhouseDetailView(greenhouseId: greenhouse.id).environmentObject(bleManager)) {
+                                NavigationLink(destination: GreenhouseDetailView(greenhouseId: greenhouse.id)
+                                    .environmentObject(bleManager)
+                                    .environmentObject(sensorDataManager)) {
                                     GreenhouseCardView(
                                         greenhouse: greenhouse,
-                                        sensorData: viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: bleManager)
+                                        sensorData: viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: bleManager, sensorDataManager: sensorDataManager)
                                     )
                                 }
                                 .buttonStyle(PlainButtonStyle())
@@ -75,6 +78,35 @@ struct GreenhouseListView: View {
                 // Данные датчиков обновляются через BLE в реальном времени, поэтому обновление списка не требуется
                 // Если нужно обновить список (например, при добавлении/удалении теплицы), это делается вручную через pull-to-refresh
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SensorDataUpdated"))) { notification in
+                // Обновляем UI при обновлении данных через глобальный менеджер
+                // Данные уже обновлены в sensorDataManager, просто обновляем view
+            }
+            .onAppear {
+                // Регистрируем экран, если есть теплицы с sensor_id
+                checkAndRegisterScreen()
+            }
+            .onDisappear {
+                // Отменяем регистрацию экрана
+                sensorDataManager.unregisterActiveScreen()
+            }
+            .onChange(of: viewModel.greenhouses) { _ in
+                // Проверяем и регистрируем экран при изменении списка теплиц
+                checkAndRegisterScreen()
+            }
+        }
+    }
+    
+    private func checkAndRegisterScreen() {
+        // Регистрируем экран, если есть теплицы с sensor_id
+        let hasSensors = viewModel.greenhouses.contains { greenhouse in
+            guard let sensorId = greenhouse.sensor_id, !sensorId.isEmpty else {
+                return false
+            }
+            return true
+        }
+        if hasSensors {
+            sensorDataManager.registerActiveScreen()
         }
     }
 }
@@ -161,7 +193,6 @@ struct GreenhouseCardView: View {
 @MainActor
 class GreenhouseListViewModel: ObservableObject {
     @Published var greenhouses: [GreenhouseOut] = []
-    @Published var sensorData: [String: SensorReadingOut] = [:]  // Изменили на SensorReadingOut
     @Published var isLoading = false
     
     func loadGreenhouses(bleManager: BLEManager? = nil, forceReload: Bool = false) async {
@@ -230,13 +261,14 @@ class GreenhouseListViewModel: ObservableObject {
             }
             
             // Данные датчиков будут браться из BLE через getSensorDataForGreenhouse
-            // Не загружаем данные с сервера
+            // или из глобального SensorDataManager, который обновляет их автоматически
+            // Регистрация экрана происходит в View через onChange
         } catch {
             print("❌ Ошибка загрузки теплиц: \(error)")
         }
     }
     
-    func getSensorDataForGreenhouse(_ greenhouse: GreenhouseOut, bleManager: BLEManager) -> SensorReadingOut? {
+    func getSensorDataForGreenhouse(_ greenhouse: GreenhouseOut, bleManager: BLEManager, sensorDataManager: SensorDataManager) -> SensorReadingOut? {
         // Проверяем, есть ли sensor_id
         guard let sensorId = greenhouse.sensor_id, !sensorId.isEmpty else {
             return nil
@@ -279,36 +311,20 @@ class GreenhouseListViewModel: ObservableObject {
             }
         }
         
-        // Если не подключен через BLE, используем данные с сервера (если они есть)
-        if let serverData = sensorData[greenhouse.id] {
+        // Если не подключен через BLE, используем данные из глобального менеджера
+        if let serverData = sensorDataManager.getSensorData(greenhouseId: greenhouse.id) {
             return serverData
         }
         
-        // Если данных нет, но sensor_id есть, загружаем с сервера асинхронно
+        // Если данных нет, но sensor_id есть, загружаем с сервера асинхронно через глобальный менеджер
         Task {
-            await loadSensorDataForGreenhouse(greenhouse)
+            await sensorDataManager.loadSensorDataForGreenhouse(greenhouse)
         }
         
         // Возвращаем nil, данные будут загружены асинхронно
         return nil
     }
     
-    private func loadSensorDataForGreenhouse(_ greenhouse: GreenhouseOut) async {
-        guard let sensorId = greenhouse.sensor_id, !sensorId.isEmpty else {
-            return
-        }
-        
-        do {
-            if let serverData = try await APIService.shared.getCurrentSensorData(greenhouseId: greenhouse.id) {
-                print("📡 loadSensorDataForGreenhouse: Загружены данные с сервера для теплицы \(greenhouse.name)")
-                await MainActor.run {
-                    sensorData[greenhouse.id] = serverData
-                }
-            }
-        } catch {
-            print("❌ loadSensorDataForGreenhouse: Ошибка загрузки данных с сервера: \(error)")
-        }
-    }
 }
 
 // MARK: - Create Greenhouse View (Placeholder)
@@ -353,6 +369,7 @@ struct CreateGreenhouseView: View {
 struct GreenhouseDetailView: View {
     let greenhouseId: String
     @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
     @State private var greenhouse: GreenhouseOut?
     @State private var sensorData: SensorReadingOut?
     @State private var isLoading = true
@@ -544,6 +561,31 @@ struct GreenhouseDetailView: View {
             // Обновляем данные при изменении BLE данных
             updateSensorDataFromBLE()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SensorDataUpdated"))) { notification in
+            // Обновляем данные при обновлении через глобальный менеджер
+            if let userInfo = notification.userInfo,
+               let greenhouseId = userInfo["greenhouse_id"] as? String,
+               greenhouseId == self.greenhouseId,
+               let updatedData = userInfo["sensor_data"] as? SensorReadingOut {
+                sensorData = updatedData
+            }
+        }
+        .onReceive(sensorDataManager.$sensorData) { _ in
+            // Обновляем данные при изменении в глобальном менеджере
+            updateSensorDataFromManager()
+        }
+        .onChange(of: greenhouse?.sensor_id) { newSensorId in
+            // Обновляем регистрацию при изменении sensor_id
+            if let sensorId = newSensorId, !sensorId.isEmpty {
+                sensorDataManager.registerActiveScreen()
+            } else {
+                sensorDataManager.unregisterActiveScreen()
+            }
+        }
+        .onDisappear {
+            // Отменяем регистрацию экрана
+            sensorDataManager.unregisterActiveScreen()
+        }
     }
     
     private func batteryColor(_ percent: Int) -> Color {
@@ -556,12 +598,20 @@ struct GreenhouseDetailView: View {
         }
     }
     
+    
     private func loadGreenhouse() async {
         do {
             let fetched = try await APIService.shared.getGreenhouse(id: greenhouseId)
             print("📥 loadGreenhouse: Загружена теплица \(fetched.name), sensor_id=\(fetched.sensor_id ?? "nil")")
             await MainActor.run {
                 greenhouse = fetched
+            }
+            
+            // Регистрируем экран, если у теплицы есть sensor_id
+            if let sensorId = fetched.sensor_id, !sensorId.isEmpty {
+                await MainActor.run {
+                    sensorDataManager.registerActiveScreen()
+                }
             }
             
             // Обновляем данные датчика из BLE, если он подключен, или загружаем с сервера
@@ -571,11 +621,15 @@ struct GreenhouseDetailView: View {
                 hasSensorData = sensorData != nil
             }
             
-            // Если BLE данные недоступны, но есть sensor_id, загружаем данные с сервера
+            // Обновляем данные из глобального менеджера
+            updateSensorDataFromManager()
+            
+            // Если BLE данные недоступны, но есть sensor_id, загружаем данные с сервера через глобальный менеджер
             if let sensorId = fetched.sensor_id,
                !sensorId.isEmpty,
                !hasSensorData {
-                await loadSensorDataFromServer()
+                await sensorDataManager.loadSensorDataForGreenhouse(fetched)
+                updateSensorDataFromManager()
             }
             
             await MainActor.run {
@@ -590,28 +644,23 @@ struct GreenhouseDetailView: View {
     }
     
     private func loadSensorDataFromServer() async {
-        var currentGreenhouse: GreenhouseOut?
-        await MainActor.run {
-            currentGreenhouse = greenhouse
-        }
-        
-        guard let greenhouse = currentGreenhouse,
+        guard let greenhouse = greenhouse,
               let sensorId = greenhouse.sensor_id,
               !sensorId.isEmpty else {
             return
         }
         
-        do {
-            if let serverData = try await APIService.shared.getCurrentSensorData(greenhouseId: greenhouse.id) {
-                print("📡 loadSensorDataFromServer: Загружены данные с сервера для теплицы \(greenhouse.name)")
-                await MainActor.run {
-                    sensorData = serverData
-                }
-            } else {
-                print("⚠️ loadSensorDataFromServer: Данные с сервера недоступны для теплицы \(greenhouse.name)")
-            }
-        } catch {
-            print("❌ loadSensorDataFromServer: Ошибка загрузки данных с сервера: \(error)")
+        // Используем глобальный менеджер для загрузки данных
+        await sensorDataManager.loadSensorDataForGreenhouse(greenhouse)
+        updateSensorDataFromManager()
+    }
+    
+    private func updateSensorDataFromManager() {
+        guard let greenhouse = greenhouse else { return }
+        
+        // Получаем данные из глобального менеджера
+        if let managerData = sensorDataManager.getSensorData(greenhouseId: greenhouse.id) {
+            sensorData = managerData
         }
     }
     
@@ -722,6 +771,11 @@ struct GreenhouseDetailView: View {
             // Обновляем данные теплицы
             await loadGreenhouse()
             
+            // Отменяем регистрацию экрана, так как sensor_id был удален
+            await MainActor.run {
+                sensorDataManager.unregisterActiveScreen()
+            }
+            
             // НЕ отправляем уведомление для обновления списка, чтобы не закрывать открытый экран
             // Данные обновляются локально через loadGreenhouse()
             
@@ -781,6 +835,9 @@ struct GreenhouseDetailView: View {
             
             // Успешно привязано и подключено, обновляем данные теплицы
             await loadGreenhouse()
+            
+            // Регистрация экрана произойдет автоматически через loadGreenhouse при наличии sensor_id
+            // (loadGreenhouse уже зарегистрирует экран, но на всякий случай)
             
             // НЕ отправляем уведомление для обновления списка, чтобы не закрывать открытый экран
             // Данные обновляются локально через loadGreenhouse()
