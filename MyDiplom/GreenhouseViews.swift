@@ -112,6 +112,11 @@ struct GreenhouseListView: View {
                 Task {
                     for greenhouse in newGreenhouses {
                         await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
+                        // Регистрируем теплицы с sensor_id для отслеживания через WebSocket
+                        if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty, isScreenRegistered {
+                            sensorDataManager.registerGreenhouse(greenhouseId: greenhouse.id)
+                            await sensorDataManager.loadSensorDataForGreenhouse(greenhouse)
+                        }
                     }
                 }
             }
@@ -134,6 +139,17 @@ struct GreenhouseListView: View {
         if hasSensors && !isScreenRegistered {
             sensorDataManager.registerActiveScreen()
             isScreenRegistered = true
+            
+            // Регистрируем все теплицы с sensor_id для отслеживания
+            for greenhouse in viewModel.greenhouses {
+                if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
+                    sensorDataManager.registerGreenhouse(greenhouseId: greenhouse.id)
+                    // Загружаем начальные данные
+                    Task {
+                        await sensorDataManager.loadSensorDataForGreenhouse(greenhouse)
+                    }
+                }
+            }
         } else if !hasSensors && isScreenRegistered {
             sensorDataManager.unregisterActiveScreen()
             isScreenRegistered = false
@@ -744,10 +760,21 @@ struct GreenhouseDetailView: View {
                     sensorDataManager.registerActiveScreen()
                     isScreenRegistered = true
                 }
+                // Регистрируем теплицу для отслеживания через WebSocket
+                if let greenhouse = greenhouse {
+                    sensorDataManager.registerGreenhouse(greenhouseId: greenhouse.id)
+                    Task {
+                        await sensorDataManager.loadSensorDataForGreenhouse(greenhouse)
+                    }
+                }
             } else {
                 if isScreenRegistered {
                     sensorDataManager.unregisterActiveScreen()
                     isScreenRegistered = false
+                }
+                // Отменяем регистрацию теплицы
+                if let greenhouse = greenhouse {
+                    sensorDataManager.unregisterGreenhouse(greenhouseId: greenhouse.id)
                 }
             }
         }
@@ -756,6 +783,10 @@ struct GreenhouseDetailView: View {
             if isScreenRegistered {
                 sensorDataManager.unregisterActiveScreen()
                 isScreenRegistered = false
+            }
+            // Отменяем регистрацию теплицы
+            if let greenhouse = greenhouse {
+                sensorDataManager.unregisterGreenhouse(greenhouseId: greenhouse.id)
             }
         }
     }
@@ -977,12 +1008,21 @@ struct GreenhouseDetailView: View {
             UserDefaults.standard.removeObject(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
             print("🗑️ Удалено соответствие из UserDefaults")
             
+            // Очищаем данные датчика для этой теплицы
+            await MainActor.run {
+                sensorDataManager.clearSensorData(greenhouseId: greenhouse.id)
+            }
+            
             // Обновляем данные теплицы
             await loadGreenhouse()
             
             // Отменяем регистрацию экрана, так как sensor_id был удален
             await MainActor.run {
-                sensorDataManager.unregisterActiveScreen()
+                if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
+                    // Если sensor_id все еще есть (не должен быть), оставляем регистрацию
+                } else {
+                    sensorDataManager.unregisterActiveScreen()
+                }
             }
             
             // НЕ отправляем уведомление для обновления списка, чтобы не закрывать открытый экран

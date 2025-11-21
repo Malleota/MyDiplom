@@ -9,32 +9,26 @@ import Foundation
 import Combine
 
 /// Глобальный менеджер для обновления данных датчиков со всех теплиц
-/// Запускается только когда есть активные экраны с запросом sensor_id
+/// Использует WebSocket для получения обновлений в реальном времени
 @MainActor
 class SensorDataManager: ObservableObject {
     static let shared = SensorDataManager()
     
     @Published var sensorData: [String: SensorReadingOut] = [:] // greenhouseId -> SensorReadingOut
     
-    private var refreshTask: Task<Void, Never>?
-    private var notificationCancellable: AnyCancellable?
     private var activeScreensCount: Int = 0 // Счетчик активных экранов с sensor_id
+    private var trackedGreenhouseIds: Set<String> = [] // Отслеживаемые теплицы
+    private var websocketManager: WebSocketManager
     
     private init() {
-        setupNotificationObserver()
-    }
-    
-    /// Настраивает наблюдатель уведомлений об отправке данных
-    private func setupNotificationObserver() {
-        notificationCancellable = NotificationCenter.default.publisher(for: NSNotification.Name("SensorDataSent"))
-            .sink { [weak self] notification in
-                Task { @MainActor in
-                    if let userInfo = notification.userInfo,
-                       let bleIdentifier = userInfo["ble_identifier"] as? String {
-                        await self?.refreshSensorDataForBleIdentifier(bleIdentifier)
-                    }
-                }
+        websocketManager = WebSocketManager.shared
+        
+        // Настраиваем callback для обновлений данных через WebSocket
+        websocketManager.onSensorDataUpdate = { [weak self] greenhouseId, sensorReading in
+            Task { @MainActor in
+                self?.handleSensorDataUpdate(greenhouseId: greenhouseId, sensorReading: sensorReading)
             }
+        }
     }
     
     /// Регистрирует активный экран с запросом sensor_id
@@ -42,9 +36,9 @@ class SensorDataManager: ObservableObject {
         activeScreensCount += 1
         print("📱 SensorDataManager: Зарегистрирован активный экран (всего: \(activeScreensCount))")
         
-        // Запускаем обновление, если это первый активный экран
+        // Подключаемся к WebSocket, если это первый активный экран
         if activeScreensCount == 1 {
-            startPeriodicRefresh()
+            connectWebSocket()
         }
     }
     
@@ -53,111 +47,109 @@ class SensorDataManager: ObservableObject {
         activeScreensCount = max(0, activeScreensCount - 1)
         print("📱 SensorDataManager: Отменена регистрация экрана (осталось: \(activeScreensCount))")
         
-        // Останавливаем обновление, если нет активных экранов
+        // Отключаемся от WebSocket, если нет активных экранов
         if activeScreensCount == 0 {
-            stopPeriodicRefresh()
+            disconnectWebSocket()
         }
     }
     
-    /// Запускает периодическое обновление данных для всех теплиц с sensor_id
-    private func startPeriodicRefresh() {
-        // Останавливаем предыдущую задачу, если она есть
-        stopPeriodicRefresh()
+    /// Регистрирует теплицу для отслеживания через WebSocket
+    func registerGreenhouse(greenhouseId: String) {
+        trackedGreenhouseIds.insert(greenhouseId)
+        print("📱 SensorDataManager: Зарегистрирована теплица \(greenhouseId) для отслеживания")
         
-        print("🔄 SensorDataManager: Запуск периодического обновления данных")
+        // Если WebSocket уже подключен, переподключаемся для обновления списка
+        if activeScreensCount > 0 {
+            connectWebSocket()
+        }
+    }
+    
+    /// Отменяет регистрацию теплицы
+    func unregisterGreenhouse(greenhouseId: String) {
+        trackedGreenhouseIds.remove(greenhouseId)
+        print("📱 SensorDataManager: Отменена регистрация теплицы \(greenhouseId)")
         
-        // Запускаем задачу, которая будет периодически запрашивать данные с сервера
-        refreshTask = Task { @MainActor in
-            var iteration = 0
-            while !Task.isCancelled {
-                iteration += 1
-                
-                // Получаем все теплицы с sensor_id
-                let greenhousesWithSensors = await self.getAllGreenhousesWithSensors()
-                
-                if !greenhousesWithSensors.isEmpty {
-                    print("🔄 SensorDataManager: [Итерация \(iteration)] Обновление данных для \(greenhousesWithSensors.count) теплиц")
-                    
-                    // Обновляем данные для всех теплиц с sensor_id
-                    for greenhouse in greenhousesWithSensors {
-                        await self.loadSensorDataForGreenhouse(greenhouse)
-                    }
+        // Если WebSocket подключен, переподключаемся
+        if activeScreensCount > 0 {
+            connectWebSocket()
+        }
+    }
+    
+    /// Подключается к WebSocket для получения обновлений
+    func connectWebSocket() {
+        // Проверяем, является ли пользователь админом
+        let isAdmin = AuthManager.shared.currentUser?.role == "admin"
+        
+        if isAdmin {
+            // Админы подключаются ко всем теплицам
+            print("🔌 SensorDataManager: Подключение к WebSocket для всех теплиц (админ)")
+            websocketManager.connectForAll()
+        } else if !trackedGreenhouseIds.isEmpty {
+            // Для обычных пользователей подключаемся к первой теплице
+            // Если отслеживается несколько теплиц, подключаемся к первой
+            // (WebSocket endpoint поддерживает только одну теплицу за раз для не-админов)
+            if let firstGreenhouseId = trackedGreenhouseIds.first {
+                if trackedGreenhouseIds.count == 1 {
+                    print("🔌 SensorDataManager: Подключение к WebSocket для теплицы \(firstGreenhouseId)")
                 } else {
-                    print("⚠️ SensorDataManager: [Итерация \(iteration)] Нет теплиц с sensor_id, пропускаем запрос")
+                    print("🔌 SensorDataManager: Подключение к WebSocket для теплицы \(firstGreenhouseId) (первая из \(trackedGreenhouseIds.count))")
                 }
-                
-                // Ждем 5 секунд перед следующим запросом
-                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 секунд
+                websocketManager.connect(greenhouseId: firstGreenhouseId)
             }
-            print("⏹️ SensorDataManager: Периодическое обновление остановлено (Task cancelled)")
-        }
-        print("✅ SensorDataManager: Периодическое обновление запущено (каждые 5 секунд)")
-    }
-    
-    /// Останавливает периодическое обновление данных
-    private func stopPeriodicRefresh() {
-        refreshTask?.cancel()
-        refreshTask = nil
-        print("⏹️ SensorDataManager: Периодическое обновление остановлено")
-    }
-    
-    /// Получает все теплицы с sensor_id с сервера
-    private func getAllGreenhousesWithSensors() async -> [GreenhouseOut] {
-        do {
-            let allGreenhouses = try await APIService.shared.getGreenhouses()
-            return allGreenhouses.filter { greenhouse in
-                guard let sensorId = greenhouse.sensor_id, !sensorId.isEmpty else {
-                    return false
-                }
-                return true
-            }
-        } catch {
-            print("❌ SensorDataManager: Ошибка загрузки теплиц: \(error)")
-            return []
+        } else {
+            print("⚠️ SensorDataManager: Нет теплиц для отслеживания, WebSocket не подключается")
         }
     }
     
-    /// Загружает данные датчика для конкретной теплицы
+    /// Отключается от WebSocket
+    private func disconnectWebSocket() {
+        print("🔌 SensorDataManager: Отключение от WebSocket")
+        websocketManager.disconnect()
+    }
+    
+    /// Обрабатывает обновление данных датчика через WebSocket
+    private func handleSensorDataUpdate(greenhouseId: String, sensorReading: SensorReadingOut) {
+        print("📡 SensorDataManager: Обновление данных датчика для теплицы \(greenhouseId) через WebSocket")
+        sensorData[greenhouseId] = sensorReading
+        
+        // Отправляем уведомление об обновлении данных
+        NotificationCenter.default.post(
+            name: NSNotification.Name("SensorDataUpdated"),
+            object: nil,
+            userInfo: ["greenhouse_id": greenhouseId, "sensor_data": sensorReading]
+        )
+    }
+    
+    /// Загружает начальные данные датчика для конкретной теплицы (для первоначальной загрузки)
     func loadSensorDataForGreenhouse(_ greenhouse: GreenhouseOut) async {
         guard let sensorId = greenhouse.sensor_id, !sensorId.isEmpty else {
             return
         }
         
-        do {
-            if let serverData = try await APIService.shared.getCurrentSensorData(greenhouseId: greenhouse.id) {
-                print("📡 SensorDataManager: Загружены данные с сервера для теплицы \(greenhouse.name)")
-                sensorData[greenhouse.id] = serverData
-                
-                // Отправляем уведомление об обновлении данных
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("SensorDataUpdated"),
-                    object: nil,
-                    userInfo: ["greenhouse_id": greenhouse.id, "sensor_data": serverData]
-                )
+        // Регистрируем теплицу для отслеживания
+        registerGreenhouse(greenhouseId: greenhouse.id)
+        
+        // Загружаем начальные данные с сервера (если еще нет данных)
+        if sensorData[greenhouse.id] == nil {
+            do {
+                if let serverData = try await APIService.shared.getCurrentSensorData(greenhouseId: greenhouse.id) {
+                    print("📡 SensorDataManager: Загружены начальные данные с сервера для теплицы \(greenhouse.name)")
+                    sensorData[greenhouse.id] = serverData
+                    
+                    // Отправляем уведомление об обновлении данных
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("SensorDataUpdated"),
+                        object: nil,
+                        userInfo: ["greenhouse_id": greenhouse.id, "sensor_data": serverData]
+                    )
+                }
+            } catch {
+                print("❌ SensorDataManager: Ошибка загрузки начальных данных с сервера для теплицы \(greenhouse.name): \(error)")
             }
-        } catch {
-            print("❌ SensorDataManager: Ошибка загрузки данных с сервера для теплицы \(greenhouse.name): \(error)")
         }
     }
     
-    /// Обновляет данные датчика для конкретного ble_identifier
-    func refreshSensorDataForBleIdentifier(_ bleIdentifier: String) async {
-        // Получаем все теплицы
-        let allGreenhouses = await getAllGreenhousesWithSensors()
-        
-        // Находим все теплицы с этим ble_identifier
-        let matchingGreenhouses = allGreenhouses.filter { greenhouse in
-            let savedBLE = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
-            return savedBLE == bleIdentifier
-        }
-        
-        // Обновляем данные для всех найденных теплиц
-        for greenhouse in matchingGreenhouses {
-            await loadSensorDataForGreenhouse(greenhouse)
-        }
-    }
-    
-    /// Получает данные датчика для теплицы (из кэша или загружает)
+    /// Получает данные датчика для теплицы (из кэша)
     func getSensorData(greenhouseId: String) -> SensorReadingOut? {
         return sensorData[greenhouseId]
     }
@@ -165,11 +157,14 @@ class SensorDataManager: ObservableObject {
     /// Очищает данные для конкретной теплицы
     func clearSensorData(greenhouseId: String) {
         sensorData.removeValue(forKey: greenhouseId)
+        unregisterGreenhouse(greenhouseId: greenhouseId)
     }
     
     /// Очищает все данные
     func clearAllSensorData() {
         sensorData.removeAll()
+        trackedGreenhouseIds.removeAll()
+        disconnectWebSocket()
     }
 }
 

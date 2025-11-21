@@ -43,12 +43,26 @@ class AuthManager: ObservableObject {
         isAuthenticated = false
         currentUser = nil
         UserDefaults.standard.removeObject(forKey: tokenKey)
+        
+        // Отключаем WebSocket при логауте
+        Task { @MainActor in
+            WebSocketManager.shared.disconnect()
+            SensorDataManager.shared.clearAllSensorData()
+        }
     }
     
     @MainActor
     func loadUserData() async {
         do {
+            let previousRole = currentUser?.role
             currentUser = try await APIService.shared.getCurrentUser()
+            
+            // Если роль изменилась, переподключаем WebSocket
+            if previousRole != currentUser?.role {
+                print("🔄 AuthManager: Роль пользователя изменилась, переподключаем WebSocket")
+                // SensorDataManager переподключится автоматически
+                SensorDataManager.shared.connectWebSocket()
+            }
         } catch {
             print("Failed to load user data: \(error)")
         }
