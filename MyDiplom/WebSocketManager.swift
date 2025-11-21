@@ -176,6 +176,12 @@ class WebSocketManager: ObservableObject {
             case "sensor_data":
                 handleSensorDataUpdate(json)
                 
+            case "watering_event_created":
+                // Данные о поливах обновляются автоматически на бэкенде, просто логируем
+                if let greenhouseId = json?["greenhouse_id"] as? String {
+                    print("💧 WebSocket: Событие полива создано для теплицы \(greenhouseId), данные обновлены автоматически на бэкенде")
+                }
+                
             default:
                 print("⚠️ WebSocket: Неизвестный тип сообщения: \(type)")
             }

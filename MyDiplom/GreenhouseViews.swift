@@ -95,6 +95,7 @@ struct GreenhouseListView: View {
             .onAppear {
                 // Регистрируем экран, если есть теплицы с sensor_id
                 checkAndRegisterScreen()
+                // Данные о поливах обновляются через WebSocket/другой механизм, не при открытии экрана
             }
             .onDisappear {
                 // Отменяем регистрацию экрана только если мы действительно выходим (не переходим на детальный экран)
@@ -108,11 +109,9 @@ struct GreenhouseListView: View {
             .onChange(of: viewModel.greenhouses) { newGreenhouses in
                 // Проверяем и регистрируем экран при изменении списка теплиц
                 checkAndRegisterScreen()
-                // Загружаем данные о поливах для новых теплиц
+                // Регистрируем теплицы с sensor_id для отслеживания через WebSocket
                 Task {
                     for greenhouse in newGreenhouses {
-                        await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
-                        // Регистрируем теплицы с sensor_id для отслеживания через WebSocket
                         if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty, isScreenRegistered {
                             sensorDataManager.registerGreenhouse(greenhouseId: greenhouse.id)
                             await sensorDataManager.loadSensorDataForGreenhouse(greenhouse)
@@ -123,6 +122,7 @@ struct GreenhouseListView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NextWateringUpdated"))) { _ in
                 // Обновляем UI при обновлении данных о поливах
             }
+            // Данные о поливах обновляются автоматически на бэкенде после создания события полива
         }
     }
     
@@ -447,6 +447,7 @@ struct GreenhouseDetailView: View {
     let greenhouseId: String
     @EnvironmentObject var bleManager: BLEManager
     @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
     @State private var greenhouse: GreenhouseOut?
     @State private var sensorData: SensorReadingOut?
     @State private var isLoading = true
@@ -765,6 +766,7 @@ struct GreenhouseDetailView: View {
             await loadGreenhouse()
             await loadPlants()
         }
+        // Данные о поливах обновляются через WebSocket/другой механизм, не при открытии экрана
         .onChange(of: bleManager.lastConnectedDevice?.id) { _ in
             // Обновляем данные при изменении подключенного устройства
             updateSensorDataFromBLE()
@@ -786,6 +788,7 @@ struct GreenhouseDetailView: View {
             // Обновляем данные при изменении в глобальном менеджере
             updateSensorDataFromManager()
         }
+        // Данные о поливах обновляются автоматически на бэкенде после создания события полива
         .onChange(of: greenhouse?.sensor_id) { newSensorId in
             // Обновляем регистрацию при изменении sensor_id
             if let sensorId = newSensorId, !sensorId.isEmpty {
@@ -833,7 +836,6 @@ struct GreenhouseDetailView: View {
             return .red
         }
     }
-    
     
     private func loadPlants() async {
         isLoadingPlants = true
