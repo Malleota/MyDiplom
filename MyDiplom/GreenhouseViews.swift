@@ -527,16 +527,22 @@ struct GreenhouseDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         // Заголовок: Название и описание с картинкой
-                        HStack(alignment: .top, spacing: 16) {
-                            VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .top, spacing: 12) {
+                            // Вертикальный контейнер с названием и описанием
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(greenhouse.name)
+                                    .font(.title)
+                                    .fontWeight(.bold)
+                                
                                 if let description = greenhouse.description {
                                     Text(description)
-                                        .font(.body)
+                                        .font(.callout)
                                         .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                        .padding(.top, 8)
                                 }
                             }
-                            
-                            Spacer()
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             
                             // Картинка справа
                             if let imageUrl = greenhouse.image_url, let url = URL(string: imageUrl) {
@@ -545,24 +551,25 @@ struct GreenhouseDetailView: View {
                                         .resizable()
                                         .aspectRatio(contentMode: .fill)
                                 } placeholder: {
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color.gray.opacity(0.3))
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color(.secondarySystemBackground))
                                 }
-                                .frame(width: 100, height: 100)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .frame(width: 80, height: 80)
+                                .background(Color(.secondarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                             } else {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.gray.opacity(0.3))
-                                    .frame(width: 100, height: 100)
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color(.secondarySystemBackground))
+                                    .frame(width: 80, height: 80)
                                     .overlay(
                                         Image(systemName: "building.2.fill")
                                             .foregroundColor(.gray)
-                                            .font(.system(size: 40))
+                                            .font(.system(size: 24))
                                     )
                             }
                         }
+                        .padding(8)
                         .padding(.horizontal)
-                        .padding(.top)
                         
                         // Блок "Текущие данные"
                         VStack(alignment: .leading, spacing: 16) {
@@ -572,12 +579,13 @@ struct GreenhouseDetailView: View {
                             
                             if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
                                 // Датчик подключен (sensor_id не пустой)
-                                VStack(spacing: 16) {
+                                VStack( spacing: 16) {
                                     // Название датчика, батарея и кнопка отвязать
                                     HStack {
                                         Text("Текущие данные")
-                                            .font(.title2)
-                                
+                                            .font(.title3)
+                                            .fontWeight(.semibold)
+
                                         Spacer()
                                         
                                         // Батарея из BLE данных, если доступна
@@ -602,15 +610,15 @@ struct GreenhouseDetailView: View {
                                                 ProgressView()
                                                     .scaleEffect(0.8)
                                             } else {
-                                                Text("Отвязать")
+                                                Text("Отключить")
                                                     .font(.caption)
-                                                    .foregroundColor(.red)
+                                                    .foregroundColor(DesignColor.mainRed.opacity(0.8))
                                             }
                                         }
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(Color.red.opacity(0.1))
-                                        .cornerRadius(6)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(DesignColor.mainRed.opacity(0.1))
+                                        .cornerRadius(40)
                                         .disabled(isUnbinding)
                                     }
                                     .padding(.horizontal)
@@ -638,39 +646,65 @@ struct GreenhouseDetailView: View {
                             } else {
                                 // Датчик не подключен
                                 VStack(spacing: 16) {
-                                    Text("Нет подключенных датчиков")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                    
-                                    Button(action: {
-                                        bleManager.startScan(disableAutoConnect: true)
-                                        showDeviceList = true
-                                    }) {
-                                        Text("Подключить")
-                                            .font(.subheadline)
-                                            .fontWeight(.medium)
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal, 24)
-                                            .padding(.vertical, 12)
-                                            .background(DesignColor.mainAccent)
-                                            .cornerRadius(8)
+                                    // Карточка подключения датчика
+                                    HStack(alignment: .center) {
+                                        HStack(alignment: .center, spacing: 8) {
+                                            Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                                                .font(.subheadline)
+                                            Text("Подключить датчик")
+                                                .font(.subheadline)
+                                                .fontWeight(.medium)
+                                                .tracking(-0.5)
+                                                .lineSpacing(15)
+                                        }
+                                        
+                                        Spacer()
+
+                                        Button(action: {
+                                            bleManager.startScan(disableAutoConnect: true)
+                                            showDeviceList = true
+                                        }) {
+                                            if isBinding {
+                                                ProgressView()
+                                                    .scaleEffect(0.8)
+                                            } else {
+                                                Text("Подключить")
+                                                    .font(.caption)
+                                                    .fontWeight(.medium)
+                                                    .tracking(-0.5)
+                                                    .lineSpacing(15)
+                                                    .foregroundColor(DesignColor.mainAccent)
+                                            }
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(DesignColor.mainAccent.opacity(0.1))
+                                        .cornerRadius(40)
+                                        .disabled(isUnbinding)
                                     }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding()
+                                    .background(Color(.systemBackground))
+                                    .cornerRadius(12)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
+                                    )
+                                    .padding(.horizontal)
                                     
                                     if let error = errorMessage {
                                         Text(error)
                                             .font(.footnote)
-                                            .foregroundColor(.red)
+                                            .foregroundColor(DesignColor.mainRed)
                                             .multilineTextAlignment(.center)
-                                            .padding(.top, 8)
+                                            .padding(.horizontal)
                                     }
                                     
                                     if isBinding {
                                         ProgressView("Привязка датчика...")
-                                            .padding(.top, 8)
+                                            .padding(.horizontal)
                                     }
                                 }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 32)
                             }
                         }
                         .padding(.top, 8)
@@ -718,8 +752,7 @@ struct GreenhouseDetailView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .navigationTitle(greenhouse?.name ?? "Теплица")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showDeviceList) {
             DeviceListView(manager: bleManager) { device in
                 bleManager.stopScan()
@@ -1146,38 +1179,38 @@ struct SensorDataCard: View {
     let unit: String
     
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
             
-            ZStack {
-                Circle()
-                    .fill(DesignColor.mainAccent.opacity(0.1))
-                    .frame(width: 40, height: 40)
-                
+            HStack(alignment: .center, spacing: 8) {
                 Image(systemName: icon)
-                    .font(.title2)
+                    .font(.subheadline)
+                    .foregroundColor(DesignColor.mainAccent)
+                 Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                     .tracking(-0.5)
+                    .lineSpacing(15)
                     .foregroundColor(DesignColor.mainAccent)
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                HStack(alignment: .firstTextBaseline, spacing: 2) {
+ 
+            HStack(alignment: .top, spacing: 2) {
                     Text(value)
                         .font(.title2)
                         .fontWeight(.semibold)
                     Text(unit)
                         .font(.title2)
                         .fontWeight(.semibold)
-                }
             }
-            .padding(.leading,8)
+            //.padding(.leading,8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(Color(.systemGray6))
+        .background(Color(.systemBackground))
         .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
+        )
     }
 }
 
