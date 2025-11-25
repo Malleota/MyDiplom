@@ -88,9 +88,15 @@ struct GreenhouseListView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GreenhouseUpdated"))) { _ in
-                // НЕ обновляем список при обновлении данных датчика, чтобы не закрывать открытый экран
-                // Данные датчиков обновляются через BLE в реальном времени, поэтому обновление списка не требуется
-                // Если нужно обновить список (например, при добавлении/удалении теплицы), это делается вручную через pull-to-refresh
+                // Обновляем список теплиц при создании/удалении теплицы
+                Task {
+                    await viewModel.loadGreenhouses(bleManager: bleManager, forceReload: true)
+                    // Обновляем данные о поливах и удобрениях для всех теплиц
+                    for greenhouse in viewModel.greenhouses {
+                        await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
+                        await fertilizingDataManager.loadNextFertilizingForGreenhouse(greenhouse)
+                    }
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SensorDataUpdated"))) { notification in
                 // Обновляем UI при обновлении данных через глобальный менеджер
@@ -447,31 +453,656 @@ class GreenhouseListViewModel: ObservableObject {
     
 }
 
-// MARK: - Create Greenhouse View (Placeholder)
+// MARK: - Create Greenhouse View
 
 struct CreateGreenhouseView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var viewModel = CreateGreenhouseViewModel()
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Название
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Название")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                        
+                        SystemInputField(
+                            placeholder: "Введите название теплицы",
+                            text: $viewModel.name
+                        )
+                    }
+                    
+                    // Описание
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Описание")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                        
+                        ZStack(alignment: .topLeading) {
+                            RoundedRectangle(cornerRadius: 40)
+                                .fill(DesignColor.Background.primary)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 40)
+                                        .stroke(DesignColor.Fills.tertiar, lineWidth: 1)
+                                )
+                                .frame(height: 120)
+                            
+                            if #available(iOS 16.0, *) {
+                                TextEditor(text: $viewModel.description)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 16)
+                                    .background(Color.clear)
+                                    .scrollContentBackground(.hidden)
+                            } else {
+                                TextEditor(text: $viewModel.description)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 16)
+                                    .background(Color.clear)
+                            }
+                        }
+                    }
+                    
+                    // Выбор картинки
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Изображение")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                        
+                        if viewModel.isLoadingImages {
+                            ProgressView("Загрузка изображений...")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                        } else {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(viewModel.availableImages) { image in
+                                        Button(action: {
+                                            viewModel.selectedImageId = image.id
+                                        }) {
+                                            Group {
+                                                if let imageUrl = APIService.shared.getFullImageURL(image.image_url) {
+                                                    AsyncImage(url: imageUrl) { phase in
+                                                        switch phase {
+                                                        case .empty:
+                                                            ProgressView()
+                                                                .frame(width: 100, height: 100)
+                                                        case .success(let img):
+                                                            img
+                                                                .resizable()
+                                                                .aspectRatio(contentMode: .fill)
+                                                        case .failure(let error):
+                                                            RoundedRectangle(cornerRadius: 12)
+                                                                .fill(Color.gray.opacity(0.2))
+                                                                .frame(width: 100, height: 100)
+                                                                .overlay(
+                                                                    Image(systemName: "photo")
+                                                                        .foregroundColor(.gray)
+                                                                )
+                                                        @unknown default:
+                                                            RoundedRectangle(cornerRadius: 12)
+                                                                .fill(Color.gray.opacity(0.2))
+                                                                .frame(width: 100, height: 100)
+                                                        }
+                                                    }
+                                                    .frame(width: 100, height: 100)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                                } else {
+                                                    RoundedRectangle(cornerRadius: 12)
+                                                        .fill(Color.gray.opacity(0.2))
+                                                        .frame(width: 100, height: 100)
+                                                        .overlay(
+                                                            Image(systemName: "photo")
+                                                                .foregroundColor(.gray)
+                                                        )
+                                                }
+                                            }
+                                        }
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(viewModel.selectedImageId == image.id ? DesignColor.mainAccent : Color.clear, lineWidth: 2)
+                                        )
+                                    }
+                                }
+                                .padding(.horizontal)
+                            }
+                        }
+                    }
+                    
+                    // Добавление растений
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            Text("Растения")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                viewModel.addPlant()
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "plus.circle.fill")
+                                    Text("Добавить")
+                                }
+                                .font(.subheadline)
+                                .foregroundColor(DesignColor.mainAccent)
+                            }
+                        }
+                        
+                        if viewModel.isLoadingPlantTypes {
+                            ProgressView("Загрузка типов растений...")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                        } else if viewModel.plants.isEmpty {
+                            Text("Растения не добавлены")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding()
+                        } else {
+                            ForEach(Array(viewModel.plants.enumerated()), id: \.element.id) { index, plant in
+                                PlantSelectionRow(
+                                    plant: plant,
+                                    availablePlantTypes: viewModel.availablePlantTypes,
+                                    onRemove: {
+                                        viewModel.removePlant(at: index)
+                                    },
+                                    onPlantTypeChanged: { plantTypeId in
+                                        viewModel.updatePlantType(at: index, plantTypeId: plantTypeId)
+                                    },
+                                    onQuantityChanged: { quantity in
+                                        viewModel.updatePlantQuantity(at: index, quantity: quantity)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    
+                    // Сообщение об ошибке
+                    if let error = viewModel.errorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(DesignColor.mainRed)
+                            .padding(.horizontal)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Новая теплица")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Сохранить") {
+                        Task {
+                            await viewModel.saveGreenhouse()
+                            if viewModel.isSuccess {
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(viewModel.isSaving || !viewModel.isValid)
+                }
+            }
+            .task {
+                await viewModel.loadData()
+            }
+        }
+    }
+}
+
+// MARK: - Create Greenhouse ViewModel
+
+@MainActor
+class CreateGreenhouseViewModel: ObservableObject {
+    @Published var name: String = ""
+    @Published var description: String = ""
+    @Published var selectedImageId: String? = nil
+    @Published var plants: [PlantSelection] = []
+    @Published var availableImages: [GreenhouseImageOut] = []
+    @Published var availablePlantTypes: [PlantTypeOut] = []
+    @Published var isLoadingImages = false
+    @Published var isLoadingPlantTypes = false
+    @Published var isSaving = false
+    @Published var errorMessage: String? = nil
+    @Published var isSuccess = false
+    
+    var isValid: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+    
+    
+    func loadData() async {
+        await loadImages()
+        await loadPlantTypes()
+    }
+    
+    func loadImages() async {
+        isLoadingImages = true
+        defer { isLoadingImages = false }
+        
+        do {
+            availableImages = try await APIService.shared.getGreenhouseImages()
+            print("📸 loadImages: Загружено \(availableImages.count) изображений")
+            
+            // Предвыбираем первую картинку
+            if !availableImages.isEmpty && selectedImageId == nil {
+                selectedImageId = availableImages.first?.id
+                print("📸 loadImages: Предвыбрано изображение с ID: \(selectedImageId ?? "nil")")
+            }
+        } catch {
+            print("❌ Ошибка загрузки изображений: \(error)")
+            if let apiError = error as? APIError {
+                errorMessage = apiError.detail
+            } else {
+                errorMessage = "Ошибка загрузки изображений: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    func loadPlantTypes() async {
+        isLoadingPlantTypes = true
+        defer { isLoadingPlantTypes = false }
+        
+        do {
+            availablePlantTypes = try await APIService.shared.getPlantTypes()
+        } catch {
+            print("❌ Ошибка загрузки типов растений: \(error)")
+            errorMessage = "Ошибка загрузки типов растений: \(error.localizedDescription)"
+        }
+    }
+    
+    func addPlant() {
+        plants.append(PlantSelection(plantTypeId: "", quantity: 1))
+    }
+    
+    func removePlant(at index: Int) {
+        guard index < plants.count else { return }
+        plants.remove(at: index)
+    }
+    
+    func updatePlantType(at index: Int, plantTypeId: String) {
+        guard index < plants.count else { return }
+        var updatedPlants = plants
+        updatedPlants[index].plantTypeId = plantTypeId
+        plants = updatedPlants
+    }
+    
+    func updatePlantQuantity(at index: Int, quantity: Int) {
+        guard index < plants.count else { return }
+        var updatedPlants = plants
+        updatedPlants[index].quantity = quantity
+        plants = updatedPlants
+    }
+    
+    func saveGreenhouse() async {
+        isSaving = true
+        errorMessage = nil
+        isSuccess = false
+        defer { isSaving = false }
+        
+        // Получаем image_url из выбранного изображения
+        var imageUrl: String? = nil
+        if let selectedImageId = selectedImageId,
+           let selectedImage = availableImages.first(where: { $0.id == selectedImageId }) {
+            imageUrl = selectedImage.image_url
+        }
+        
+        // Формируем список растений
+        let plantInstances: [PlantInstanceCreate]? = plants.isEmpty ? nil : plants.compactMap { plant in
+            guard !plant.plantTypeId.isEmpty else { return nil }
+            return PlantInstanceCreate(
+                plant_type_id: plant.plantTypeId,
+                quantity: plant.quantity,
+                note: nil
+            )
+        }
+        
+        let greenhouseCreate = GreenhouseCreate(
+            name: name.trimmingCharacters(in: .whitespaces),
+            description: description.trimmingCharacters(in: .whitespaces).isEmpty ? nil : description.trimmingCharacters(in: .whitespaces),
+            image_url: imageUrl,
+            plants: plantInstances?.isEmpty == false ? plantInstances : nil,
+            worker_ids: nil,
+            sensor_ble_identifier: nil
+        )
+        
+        do {
+            _ = try await APIService.shared.createGreenhouse(greenhouseCreate)
+            print("✅ Теплица успешно создана")
+            isSuccess = true
+            
+            // Отправляем уведомление об обновлении списка теплиц
+            NotificationCenter.default.post(name: NSNotification.Name("GreenhouseUpdated"), object: nil)
+        } catch {
+            print("❌ Ошибка создания теплицы: \(error)")
+            if let apiError = error as? APIError {
+                errorMessage = apiError.detail
+            } else {
+                errorMessage = "Ошибка создания теплицы: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+// MARK: - Plant Selection Model
+
+struct PlantSelection: Identifiable {
+    let id = UUID()
+    var plantTypeId: String
+    var quantity: Int
+}
+
+// MARK: - Plant Selection Row
+
+struct PlantSelectionRow: View {
+    let plant: PlantSelection
+    let availablePlantTypes: [PlantTypeOut]
+    let onRemove: () -> Void
+    let onPlantTypeChanged: (String) -> Void
+    let onQuantityChanged: (Int) -> Void
+    
+    @State private var quantityText: String
+    @State private var showPlantPicker = false
+    
+    init(plant: PlantSelection, availablePlantTypes: [PlantTypeOut], onRemove: @escaping () -> Void, onPlantTypeChanged: @escaping (String) -> Void, onQuantityChanged: @escaping (Int) -> Void) {
+        self.plant = plant
+        self.availablePlantTypes = availablePlantTypes
+        self.onRemove = onRemove
+        self.onPlantTypeChanged = onPlantTypeChanged
+        self.onQuantityChanged = onQuantityChanged
+        _quantityText = State(initialValue: String(plant.quantity))
+    }
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("Растение")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button(action: onRemove) {
+                    Image(systemName: "trash")
+                        .foregroundColor(DesignColor.mainRed)
+                }
+            }
+            
+            // Выбор типа растения
+            Button(action: {
+                showPlantPicker = true
+            }) {
+                HStack {
+                    Text(selectedPlantTypeName)
+                        .foregroundColor(plant.plantTypeId.isEmpty ? .secondary : .primary)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                }
+                .padding()
+                .background(DesignColor.Background.primary)
+                .cornerRadius(40)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 40)
+                        .stroke(DesignColor.Fills.tertiar, lineWidth: 1)
+                )
+            }
+            .sheet(isPresented: $showPlantPicker) {
+                PlantPickerView(
+                    availablePlantTypes: availablePlantTypes,
+                    selectedPlantTypeId: plant.plantTypeId,
+                    onSelect: { plantTypeId in
+                        onPlantTypeChanged(plantTypeId)
+                        showPlantPicker = false
+                    }
+                )
+            }
+            
+            // Информация о выбранном растении (картинка и температура)
+            if let selectedPlantType = selectedPlantType {
+                HStack(spacing: 12) {
+                    // Картинка растения
+                    if let imageUrl = selectedPlantType.image_url, let url = URL(string: imageUrl) {
+                        AsyncImage(url: url) { image in
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.gray.opacity(0.3))
+                        }
+                        .frame(width: 60, height: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    } else {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(width: 60, height: 60)
+                            .overlay(
+                                Image(systemName: "leaf.fill")
+                                    .foregroundColor(.gray)
+                                    .font(.system(size: 24))
+                            )
+                    }
+                    
+                    // Температура
+                    if let tempMin = selectedPlantType.temp_min, let tempMax = selectedPlantType.temp_max {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "thermometer")
+                                    .foregroundColor(DesignColor.mainAccent)
+                                    .font(.caption)
+                                Text("Температура")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Text("\(String(format: "%.1f", tempMin))°C - \(String(format: "%.1f", tempMax))°C")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(.primary)
+                        }
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+            }
+            
+            // Количество
+            HStack {
+                Text("Количество")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                HStack(spacing: 8) {
+                    Button(action: {
+                        let newQuantity = max(1, plant.quantity - 1)
+                        quantityText = String(newQuantity)
+                        onQuantityChanged(newQuantity)
+                    }) {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundColor(DesignColor.mainAccent)
+                    }
+                    
+                    TextField("", text: $quantityText)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 60)
+                        .onChange(of: quantityText) { newValue in
+                            if let quantity = Int(newValue), quantity > 0 {
+                                onQuantityChanged(quantity)
+                            }
+                        }
+                    
+                    Button(action: {
+                        let newQuantity = plant.quantity + 1
+                        quantityText = String(newQuantity)
+                        onQuantityChanged(newQuantity)
+                    }) {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundColor(DesignColor.mainAccent)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+        .onAppear {
+            quantityText = String(plant.quantity)
+        }
+        .onChange(of: plant.quantity) { newValue in
+            if quantityText != String(newValue) {
+                quantityText = String(newValue)
+            }
+        }
+    }
+    
+    private var selectedPlantTypeName: String {
+        if let plantType = availablePlantTypes.first(where: { $0.id == plant.plantTypeId }) {
+            return plantType.name
+        }
+        return "Выберите растение"
+    }
+    
+    private var selectedPlantType: PlantTypeOut? {
+        availablePlantTypes.first(where: { $0.id == plant.plantTypeId })
+    }
+}
+
+// MARK: - Plant Picker View
+
+struct PlantPickerView: View {
+    let availablePlantTypes: [PlantTypeOut]
+    let selectedPlantTypeId: String
+    let onSelect: (String) -> Void
+    
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 20) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(DesignColor.mainAccent)
-                
-                Text("Создание теплицы")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                
-                Text("Здесь будет форма создания теплицы")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                
-                Spacer()
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(availablePlantTypes) { plantType in
+                        Button(action: {
+                            onSelect(plantType.id)
+                        }) {
+                            HStack(spacing: 12) {
+                                // Картинка растения
+                                if let imageUrl = plantType.image_url, let url = APIService.shared.getFullImageURL(imageUrl) {
+                                    AsyncImage(url: url) { phase in
+                                        switch phase {
+                                        case .empty:
+                                            ProgressView()
+                                                .frame(width: 60, height: 60)
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                        case .failure:
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .fill(Color.gray.opacity(0.3))
+                                                .frame(width: 60, height: 60)
+                                                .overlay(
+                                                    Image(systemName: "leaf.fill")
+                                                        .foregroundColor(.gray)
+                                                        .font(.system(size: 24))
+                                                )
+                                        @unknown default:
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .fill(Color.gray.opacity(0.3))
+                                                .frame(width: 60, height: 60)
+                                        }
+                                    }
+                                    .frame(width: 60, height: 60)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                } else {
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(Color.gray.opacity(0.3))
+                                        .frame(width: 60, height: 60)
+                                        .overlay(
+                                            Image(systemName: "leaf.fill")
+                                                .foregroundColor(.gray)
+                                                .font(.system(size: 24))
+                                        )
+                                }
+                                
+                                // Информация о растении
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(plantType.name)
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                    
+                                    if let description = plantType.description {
+                                        Text(description)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                    
+                                    // Температура
+                                    if let tempMin = plantType.temp_min, let tempMax = plantType.temp_max {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "thermometer")
+                                                .foregroundColor(DesignColor.mainAccent)
+                                                .font(.caption)
+                                            Text("\(String(format: "%.1f", tempMin))°C - \(String(format: "%.1f", tempMax))°C")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    
+                                    // Влажность
+                                    if let humMin = plantType.humidity_min, let humMax = plantType.humidity_max {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "drop.fill")
+                                                .foregroundColor(DesignColor.mainAccent)
+                                                .font(.caption)
+                                            Text("\(String(format: "%.0f", humMin))% - \(String(format: "%.0f", humMax))%")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+                                
+                                Spacer()
+                                
+                                // Индикатор выбора
+                                if selectedPlantTypeId == plantType.id {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(DesignColor.mainAccent)
+                                        .font(.title3)
+                                }
+                            }
+                            .padding()
+                            .background(Color(.systemBackground))
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(selectedPlantTypeId == plantType.id ? DesignColor.mainAccent : Color.clear, lineWidth: 2)
+                            )
+                            .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding()
             }
-            .padding()
-            .navigationTitle("Новая теплица")
+            .navigationTitle("Выберите растение")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
