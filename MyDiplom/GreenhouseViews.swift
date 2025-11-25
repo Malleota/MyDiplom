@@ -228,27 +228,27 @@ struct GreenhouseCardView: View {
                         if let daysUntil = nextWatering.days_until {
                             // Есть интервал, показываем дни до следующего полива
                             if nextWatering.is_overdue {
-                                Label("Полив просрочен на \(abs(daysUntil)) дн.", systemImage: "drop.fill")
+                                Label("Просрочено на \(abs(daysUntil)) дн.", systemImage: "drop.fill")
                                     .font(.subheadline)
                                     .foregroundColor(.red)
                             } else if daysUntil == 0 {
-                                Label("Полив сегодня", systemImage: "drop.fill")
+                                Label("Сегодня", systemImage: "drop.fill")
                                     .font(.subheadline)
                                     .foregroundColor(.orange)
                             } else {
-                                Label("Полив через \(daysUntil) дн.", systemImage: "drop.fill")
+                                Label("Через \(daysUntil) дн.", systemImage: "drop.fill")
                                     .font(.subheadline)
                                     .foregroundColor(DesignColor.mainAccent)
                             }
                         } else if let lastWateringDate = nextWatering.next_watering_date {
                             // Нет интервала, но есть дата последнего полива
                             // Показываем дату последнего полива
-                            Label("Последний полив: \(formatDate(lastWateringDate))", systemImage: "drop.fill")
+                            Label("Последний: \(formatDate(lastWateringDate))", systemImage: "drop.fill")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         } else {
                             // Нет данных о поливе
-                            Label("Полив не запланирован", systemImage: "drop.fill")
+                            Label("Не запланирован", systemImage: "drop.fill")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
@@ -263,27 +263,27 @@ struct GreenhouseCardView: View {
                         if let daysUntil = nextFertilizing.days_until {
                             // Есть интервал, показываем дни до следующего удобрения
                             if nextFertilizing.is_overdue {
-                                Label("Удобрение просрочено на \(abs(daysUntil)) дн.", systemImage: "leaf.fill")
+                                Label("Просрочено на \(abs(daysUntil)) дн.", systemImage: "leaf.fill")
                                     .font(.subheadline)
                                     .foregroundColor(.red)
                             } else if daysUntil == 0 {
-                                Label("Удобрение сегодня", systemImage: "leaf.fill")
+                                Label("Сегодня", systemImage: "leaf.fill")
                                     .font(.subheadline)
                                     .foregroundColor(.orange)
                             } else {
-                                Label("Удобрение через \(daysUntil) дн.", systemImage: "leaf.fill")
+                                Label("Через \(daysUntil) дн.", systemImage: "leaf.fill")
                                     .font(.subheadline)
                                     .foregroundColor(.green)
                             }
                         } else if let lastFertilizingDate = nextFertilizing.next_watering_date {
                             // Нет интервала, но есть дата последнего удобрения
                             // Показываем дату последнего удобрения
-                            Label("Последнее удобрение: \(formatDate(lastFertilizingDate))", systemImage: "leaf.fill")
+                            Label("Последнее: \(formatDate(lastFertilizingDate))", systemImage: "leaf.fill")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         } else {
                             // Нет данных об удобрении
-                            Label("Удобрение не запланировано", systemImage: "leaf.fill")
+                            Label("Не запланировано", systemImage: "leaf.fill")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
@@ -1379,26 +1379,26 @@ struct PlantCardView: View {
                     if let daysUntil = nextWatering.days_until {
                         // Есть интервал, показываем дни до следующего полива
                         if nextWatering.is_overdue {
-                            Label("Полив просрочен на \(abs(daysUntil)) дн.", systemImage: "drop.fill")
+                            Label("Просрочено на \(abs(daysUntil)) дн.", systemImage: "drop.fill")
                                 .font(.subheadline)
                                 .foregroundColor(.red)
                         } else if daysUntil == 0 {
-                            Label("Полив сегодня", systemImage: "drop.fill")
+                            Label("Сегодня", systemImage: "drop.fill")
                                 .font(.subheadline)
                                 .foregroundColor(.orange)
                         } else {
-                            Label("Полив через \(daysUntil) дн.", systemImage: "drop.fill")
+                            Label("Через \(daysUntil) дн.", systemImage: "drop.fill")
                                 .font(.subheadline)
                                 .foregroundColor(DesignColor.mainAccent)
                         }
                     } else if let lastWateringDate = nextWatering.next_watering_date {
                         // Нет интервала, но есть дата последнего полива
-                        Label("Последний полив: \(formatDate(lastWateringDate))", systemImage: "drop.fill")
+                        Label("Последний: \(formatDate(lastWateringDate))", systemImage: "drop.fill")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     } else {
                         // Нет данных о поливе
-                        Label("Полив не запланирован", systemImage: "drop.fill")
+                        Label("Не запланирован", systemImage: "drop.fill")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -1413,26 +1413,26 @@ struct PlantCardView: View {
                     if let daysUntil = nextFertilizing.days_until {
                         // Есть интервал, показываем дни до следующего удобрения
                         if nextFertilizing.is_overdue {
-                            Label("Удобрение просрочено на \(abs(daysUntil)) дн.", systemImage: "leaf.fill")
+                            Label("Просрочено на \(abs(daysUntil)) дн.", systemImage: "leaf.fill")
                                 .font(.subheadline)
                                 .foregroundColor(.red)
                         } else if daysUntil == 0 {
-                            Label("Удобрение сегодня", systemImage: "leaf.fill")
+                            Label("Сегодня", systemImage: "leaf.fill")
                                 .font(.subheadline)
                                 .foregroundColor(.orange)
                         } else {
-                            Label("Удобрение через \(daysUntil) дн.", systemImage: "leaf.fill")
+                            Label("Через \(daysUntil) дн.", systemImage: "leaf.fill")
                                 .font(.subheadline)
                                 .foregroundColor(.green)
                         }
                     } else if let lastFertilizingDate = nextFertilizing.next_watering_date {
                         // Нет интервала, но есть дата последнего удобрения
-                        Label("Последнее удобрение: \(formatDate(lastFertilizingDate))", systemImage: "leaf.fill")
+                        Label("Последнее: \(formatDate(lastFertilizingDate))", systemImage: "leaf.fill")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     } else {
                         // Нет данных об удобрении
-                        Label("Удобрение не запланировано", systemImage: "leaf.fill")
+                        Label("Не запланировано", systemImage: "leaf.fill")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -1453,7 +1453,7 @@ struct PlantCardView: View {
             Spacer()
             
             // Кнопки действий
-            HStack(spacing: 8) {
+            VStack(spacing: 8) {
                 // Кнопка "Полить"
                 if shouldShowWaterButton {
                     Button(action: {
@@ -1466,15 +1466,17 @@ struct PlantCardView: View {
                                 .scaleEffect(0.8)
                         } else {
                             Text("Полить")
-                                .font(.subheadline)
+                                .font(.caption)
                                 .fontWeight(.medium)
-                                .foregroundColor(.white)
+                                .tracking(-0.5)
+                                .lineSpacing(15)
+                                .foregroundColor(DesignColor.myBlue)
                         }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(DesignColor.mainAccent)
-                    .cornerRadius(8)
+                    .background(DesignColor.myBlue.opacity(0.1))
+                    .cornerRadius(40)
                     .disabled(isWatering || isFertilizing)
                 }
                 
@@ -1490,15 +1492,17 @@ struct PlantCardView: View {
                                 .scaleEffect(0.8)
                         } else {
                             Text("Удобрить")
-                                .font(.subheadline)
+                                .font(.caption)
                                 .fontWeight(.medium)
-                                .foregroundColor(.white)
+                                .tracking(-0.5)
+                                .lineSpacing(15)
+                                .foregroundColor(DesignColor.myBrown)
                         }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color.green)
-                    .cornerRadius(8)
+                    .background(DesignColor.myBrown.opacity(0.1))
+                    .cornerRadius(40)
                     .disabled(isWatering || isFertilizing)
                 }
             }
@@ -1522,6 +1526,7 @@ struct PlantCardView: View {
                 plantInstance: plantInstance,
                 plantType: plantType,
                 nextWatering: nextWatering,
+                nextFertilizing: nextFertilizing,
                 onUpdateComplete: {
                     onWateringComplete()
                 }
@@ -1615,21 +1620,24 @@ struct EditPlantView: View {
     let plantInstance: PlantInstanceOut
     let plantType: PlantTypeOut?
     let nextWatering: NextWateringOut?
+    let nextFertilizing: NextWateringOut?
     let onUpdateComplete: () -> Void
     
     @Environment(\.dismiss) private var dismiss
     @StateObject private var authManager = AuthManager.shared
     
     @State private var quantity: String
-    @State private var selectedDate: Date?
+    @State private var selectedWateringDate: Date?
+    @State private var selectedFertilizingDate: Date?
     @State private var isSaving = false
     @State private var errorMessage: String?
     
-    init(greenhouseId: String, plantInstance: PlantInstanceOut, plantType: PlantTypeOut?, nextWatering: NextWateringOut?, onUpdateComplete: @escaping () -> Void) {
+    init(greenhouseId: String, plantInstance: PlantInstanceOut, plantType: PlantTypeOut?, nextWatering: NextWateringOut?, nextFertilizing: NextWateringOut?, onUpdateComplete: @escaping () -> Void) {
         self.greenhouseId = greenhouseId
         self.plantInstance = plantInstance
         self.plantType = plantType
         self.nextWatering = nextWatering
+        self.nextFertilizing = nextFertilizing
         self.onUpdateComplete = onUpdateComplete
         
         // Инициализируем количество из plantInstance
@@ -1639,9 +1647,18 @@ struct EditPlantView: View {
         if let nextWatering = nextWatering,
            let nextWateringDateString = nextWatering.next_watering_date,
            let date = parseDate(nextWateringDateString) {
-            _selectedDate = State(initialValue: date)
+            _selectedWateringDate = State(initialValue: date)
         } else {
-            _selectedDate = State(initialValue: nil)
+            _selectedWateringDate = State(initialValue: nil)
+        }
+        
+        // Инициализируем дату удобрения из nextFertilizing, если она есть
+        if let nextFertilizing = nextFertilizing,
+           let nextFertilizingDateString = nextFertilizing.next_watering_date,
+           let date = parseDate(nextFertilizingDateString) {
+            _selectedFertilizingDate = State(initialValue: date)
+        } else {
+            _selectedFertilizingDate = State(initialValue: nil)
         }
     }
     
@@ -1663,26 +1680,51 @@ struct EditPlantView: View {
                 }
                 
                 Section(header: Text("Дата следующего полива")) {
-                    if let selectedDate = selectedDate {
+                    if let selectedWateringDate = selectedWateringDate {
                         DatePicker(
                             "Дата полива",
                             selection: Binding(
-                                get: { selectedDate },
+                                get: { selectedWateringDate },
                                 set: { newDate in
-                                    self.selectedDate = newDate
+                                    self.selectedWateringDate = newDate
                                 }
                             ),
                             displayedComponents: .date
                         )
                         
                         Button("Очистить дату") {
-                            self.selectedDate = nil
+                            self.selectedWateringDate = nil
                         }
                         .foregroundColor(DesignColor.mainRed)
                     } else {
                         Button("Выбрать дату") {
                             // Устанавливаем дату по умолчанию (сегодня), если дата не выбрана
-                            self.selectedDate = Date()
+                            self.selectedWateringDate = Date()
+                        }
+                    }
+                }
+                
+                Section(header: Text("Дата следующего удобрения")) {
+                    if let selectedFertilizingDate = selectedFertilizingDate {
+                        DatePicker(
+                            "Дата удобрения",
+                            selection: Binding(
+                                get: { selectedFertilizingDate },
+                                set: { newDate in
+                                    self.selectedFertilizingDate = newDate
+                                }
+                            ),
+                            displayedComponents: .date
+                        )
+                        
+                        Button("Очистить дату") {
+                            self.selectedFertilizingDate = nil
+                        }
+                        .foregroundColor(DesignColor.mainRed)
+                    } else {
+                        Button("Выбрать дату") {
+                            // Устанавливаем дату по умолчанию (сегодня), если дата не выбрана
+                            self.selectedFertilizingDate = Date()
                         }
                     }
                 }
@@ -1729,22 +1771,40 @@ struct EditPlantView: View {
         }
         
         do {
-            // Формируем дату в ISO8601 формате, если она выбрана
+            // Формируем дату полива в ISO8601 формате, если она выбрана
             var nextWateringDateString: String? = nil
-            if let selectedDate = selectedDate {
+            if let selectedWateringDate = selectedWateringDate {
                 let formatter = ISO8601DateFormatter()
                 formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                nextWateringDateString = formatter.string(from: selectedDate)
+                nextWateringDateString = formatter.string(from: selectedWateringDate)
             }
             
             // Вычисляем days_until, если есть дата полива
             var daysUntil: Int? = nil
-            if let selectedDate = selectedDate {
+            if let selectedWateringDate = selectedWateringDate {
                 let calendar = Calendar.current
                 let today = calendar.startOfDay(for: Date())
-                let selected = calendar.startOfDay(for: selectedDate)
+                let selected = calendar.startOfDay(for: selectedWateringDate)
                 let components = calendar.dateComponents([.day], from: today, to: selected)
                 daysUntil = components.day
+            }
+            
+            // Формируем дату удобрения в ISO8601 формате, если она выбрана
+            var nextFertilizingDateString: String? = nil
+            if let selectedFertilizingDate = selectedFertilizingDate {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                nextFertilizingDateString = formatter.string(from: selectedFertilizingDate)
+            }
+            
+            // Вычисляем fertilizing_days_until, если есть дата удобрения
+            var fertilizingDaysUntil: Int? = nil
+            if let selectedFertilizingDate = selectedFertilizingDate {
+                let calendar = Calendar.current
+                let today = calendar.startOfDay(for: Date())
+                let selected = calendar.startOfDay(for: selectedFertilizingDate)
+                let components = calendar.dateComponents([.day], from: today, to: selected)
+                fertilizingDaysUntil = components.day
             }
             
             guard let qty = Int(quantity), qty > 0 else {
@@ -1756,7 +1816,9 @@ struct EditPlantView: View {
                 quantity: qty,
                 note: nil, // Не меняем заметку
                 next_watering_date: nextWateringDateString,
-                days_until: daysUntil
+                days_until: daysUntil,
+                next_fertilizing_date: nextFertilizingDateString,
+                fertilizing_days_until: fertilizingDaysUntil
             )
             
             _ = try await APIService.shared.updatePlantInstance(

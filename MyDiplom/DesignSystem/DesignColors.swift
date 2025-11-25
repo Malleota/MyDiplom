@@ -18,6 +18,8 @@ enum DesignColor {
     
     static let mainAccent = Color("MainAccent")
     static let mainRed = Color("MainRed")
+    static let myBlue = Color("MyBlue")
+    static let myBrown = Color("MyBrown")
 }
 
 

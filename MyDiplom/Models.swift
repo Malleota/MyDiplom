@@ -179,5 +179,7 @@ struct PlantInstanceUpdate: Codable {
     let note: String?
     let next_watering_date: String?
     let days_until: Int?
+    let next_fertilizing_date: String?
+    let fertilizing_days_until: Int?
 }
 
