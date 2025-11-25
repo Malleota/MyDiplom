@@ -13,27 +13,90 @@ import Combine
 class WateringDataManager: ObservableObject {
     static let shared = WateringDataManager()
     
-    @Published var nextWateringData: [String: NextWateringOut] = [:] // greenhouseId -> NextWateringOut
+    @Published var nextWateringData: [String: NextWateringOut] = [:] // greenhouseId -> NextWateringOut (ближайший полив среди всех растений)
     @Published var wateringEvents: [String: [WaterEventOut]] = [:] // greenhouseId -> [WaterEventOut]
     
     private init() {}
     
     /// Загружает данные о следующем поливе для теплицы
+    /// Находит растение, которое потребует полива раньше всех
     func loadNextWateringForGreenhouse(_ greenhouse: GreenhouseOut) async {
         do {
-            if let nextWatering = try await APIService.shared.getNextWatering(greenhouseId: greenhouse.id) {
-                print("💧 WateringDataManager: Загружены данные о следующем поливе для теплицы \(greenhouse.name), days_until=\(nextWatering.days_until?.description ?? "nil")")
-                // Сохраняем данные, даже если все поля None (это означает, что поливов нет)
-                nextWateringData[greenhouse.id] = nextWatering
+            // Загружаем данные о поливе для всех растений в теплице
+            let plantWaterings = try await APIService.shared.getNextWateringForPlants(greenhouseId: greenhouse.id)
+            
+            if plantWaterings.isEmpty {
+                // Если нет растений, используем общий эндпоинт для теплицы
+                if let nextWatering = try await APIService.shared.getNextWatering(greenhouseId: greenhouse.id) {
+                    print("💧 WateringDataManager: Загружены данные о следующем поливе для теплицы \(greenhouse.name) (нет растений), days_until=\(nextWatering.days_until?.description ?? "nil")")
+                    nextWateringData[greenhouse.id] = nextWatering
+                    
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("NextWateringUpdated"),
+                        object: nil,
+                        userInfo: ["greenhouse_id": greenhouse.id, "next_watering": nextWatering]
+                    )
+                } else {
+                    nextWateringData.removeValue(forKey: greenhouse.id)
+                }
+                return
+            }
+            
+            // Находим растение с минимальным days_until
+            // Приоритет: просроченные поливы (самый просроченный) > непросроченные (ближайший)
+            var closestWatering: NextWateringOut?
+            var minDaysUntil: Int? = nil
+            var hasOverdue = false
+            
+            for watering in plantWaterings {
+                if let daysUntil = watering.days_until {
+                    // Если это просроченный полив
+                    if watering.is_overdue {
+                        // Просроченные имеют приоритет
+                        if !hasOverdue {
+                            // Первый просроченный - берем его
+                            hasOverdue = true
+                            minDaysUntil = daysUntil
+                            closestWatering = watering
+                        } else {
+                            // Среди просроченных берем самый просроченный (минимальный days_until, т.к. он отрицательный)
+                            if daysUntil < minDaysUntil! {
+                                minDaysUntil = daysUntil
+                                closestWatering = watering
+                            }
+                        }
+                    } else {
+                        // Непросроченный полив
+                        if !hasOverdue {
+                            // Если еще не нашли просроченных, ищем ближайший непросроченный
+                            if minDaysUntil == nil || daysUntil < minDaysUntil! {
+                                minDaysUntil = daysUntil
+                                closestWatering = watering
+                            }
+                        }
+                        // Если уже есть просроченные, игнорируем непросроченные
+                    }
+                } else {
+                    // Если нет days_until, но есть дата полива, это менее приоритетно
+                    // Используем только если нет других вариантов
+                    if closestWatering == nil {
+                        closestWatering = watering
+                    }
+                }
+            }
+            
+            // Если нашли ближайший полив, сохраняем его
+            if let closest = closestWatering {
+                print("💧 WateringDataManager: Найден ближайший полив для теплицы \(greenhouse.name): растение '\(closest.plant_name ?? "неизвестно")', days_until=\(closest.days_until?.description ?? "nil"), is_overdue=\(closest.is_overdue)")
+                nextWateringData[greenhouse.id] = closest
                 
-                // Отправляем уведомление об обновлении
                 NotificationCenter.default.post(
                     name: NSNotification.Name("NextWateringUpdated"),
                     object: nil,
-                    userInfo: ["greenhouse_id": greenhouse.id, "next_watering": nextWatering]
+                    userInfo: ["greenhouse_id": greenhouse.id, "next_watering": closest]
                 )
             } else {
-                // Если API вернул nil (404 или другая ошибка), удаляем из кэша
+                // Если не нашли, удаляем из кэша
                 nextWateringData.removeValue(forKey: greenhouse.id)
             }
         } catch {

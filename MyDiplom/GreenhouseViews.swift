@@ -233,7 +233,7 @@ struct GreenhouseCardView: View {
                                     .foregroundColor(DesignColor.mainAccent)
                             }
                         } else if let lastWateringDate = nextWatering.next_watering_date {
-                            // Нет интервала, но есть дата последнего полива (полив по всей теплице)
+                            // Нет интервала, но есть дата последнего полива
                             // Показываем дату последнего полива
                             Label("Последний полив: \(formatDate(lastWateringDate))", systemImage: "drop.fill")
                                 .font(.subheadline)
