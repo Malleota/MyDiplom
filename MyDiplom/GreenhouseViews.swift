@@ -1252,6 +1252,12 @@ struct PlantCardView: View {
     
     @State private var isWatering = false
     @State private var errorMessage: String?
+    @State private var showEditPlant = false
+    
+    // Проверяем, является ли пользователь администратором
+    private var isAdmin: Bool {
+        AuthManager.shared.currentUser?.role == "admin"
+    }
     
     // Проверяем, нужно ли показывать кнопку "Полить"
     private var shouldShowWaterButton: Bool {
@@ -1289,10 +1295,15 @@ struct PlantCardView: View {
             
             // Информация о растении
             VStack(alignment: .leading, spacing: 6) {
-                // Заголовок (название растения)
-                Text(plantType?.name ?? "Растение")
-                    .font(.headline)
-                    .foregroundColor(.primary)
+                // Заголовок (название растения и количество)
+                HStack(spacing: 4) {
+                    Text(plantType?.name ?? "Растение")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    Text("\(plantInstance.quantity) шт")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                }
                 
                 // Данные о поливе
                 if let nextWatering = nextWatering {
@@ -1366,6 +1377,26 @@ struct PlantCardView: View {
         .background(Color(.systemBackground))
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+        .contextMenu {
+            if isAdmin {
+                Button(action: {
+                    showEditPlant = true
+                }) {
+                    Label("Редактировать", systemImage: "pencil")
+                }
+            }
+        }
+        .sheet(isPresented: $showEditPlant) {
+            EditPlantView(
+                greenhouseId: greenhouseId,
+                plantInstance: plantInstance,
+                plantType: plantType,
+                nextWatering: nextWatering,
+                onUpdateComplete: {
+                    onWateringComplete()
+                }
+            )
+        }
     }
     
     private func waterPlant() async {
@@ -1402,6 +1433,186 @@ struct PlantCardView: View {
                     errorMessage = apiError.detail
                 } else {
                     errorMessage = "Ошибка полива: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Edit Plant View
+
+struct EditPlantView: View {
+    let greenhouseId: String
+    let plantInstance: PlantInstanceOut
+    let plantType: PlantTypeOut?
+    let nextWatering: NextWateringOut?
+    let onUpdateComplete: () -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var authManager = AuthManager.shared
+    
+    @State private var quantity: String
+    @State private var selectedDate: Date?
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    
+    init(greenhouseId: String, plantInstance: PlantInstanceOut, plantType: PlantTypeOut?, nextWatering: NextWateringOut?, onUpdateComplete: @escaping () -> Void) {
+        self.greenhouseId = greenhouseId
+        self.plantInstance = plantInstance
+        self.plantType = plantType
+        self.nextWatering = nextWatering
+        self.onUpdateComplete = onUpdateComplete
+        
+        // Инициализируем количество из plantInstance
+        _quantity = State(initialValue: String(plantInstance.quantity))
+        
+        // Инициализируем дату полива из nextWatering, если она есть
+        if let nextWatering = nextWatering,
+           let nextWateringDateString = nextWatering.next_watering_date,
+           let date = parseDate(nextWateringDateString) {
+            _selectedDate = State(initialValue: date)
+        } else {
+            _selectedDate = State(initialValue: nil)
+        }
+    }
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Информация о растении")) {
+                    HStack {
+                        Text("Тип растения")
+                        Spacer()
+                        Text(plantType?.name ?? "Неизвестно")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                Section(header: Text("Количество растений")) {
+                    TextField("Количество", text: $quantity)
+                        .keyboardType(.numberPad)
+                }
+                
+                Section(header: Text("Дата следующего полива")) {
+                    if let selectedDate = selectedDate {
+                        DatePicker(
+                            "Дата полива",
+                            selection: Binding(
+                                get: { selectedDate },
+                                set: { newDate in
+                                    self.selectedDate = newDate
+                                }
+                            ),
+                            displayedComponents: .date
+                        )
+                        
+                        Button("Очистить дату") {
+                            self.selectedDate = nil
+                        }
+                        .foregroundColor(DesignColor.mainRed)
+                    } else {
+                        Button("Выбрать дату") {
+                            // Устанавливаем дату по умолчанию (сегодня), если дата не выбрана
+                            self.selectedDate = Date()
+                        }
+                    }
+                }
+                
+                if let error = errorMessage {
+                    Section {
+                        Text(error)
+                            .foregroundColor(DesignColor.mainRed)
+                            .font(.caption)
+                    }
+                }
+            }
+            .navigationTitle("Редактировать растение")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Сохранить") {
+                        Task {
+                            await saveChanges()
+                        }
+                    }
+                    .disabled(isSaving || !isValid)
+                }
+            }
+        }
+    }
+    
+    private var isValid: Bool {
+        guard let qty = Int(quantity), qty > 0 else {
+            return false
+        }
+        return true
+    }
+    
+    private func saveChanges() async {
+        await MainActor.run {
+            isSaving = true
+            errorMessage = nil
+        }
+        
+        do {
+            // Формируем дату в ISO8601 формате, если она выбрана
+            var nextWateringDateString: String? = nil
+            if let selectedDate = selectedDate {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                nextWateringDateString = formatter.string(from: selectedDate)
+            }
+            
+            // Вычисляем days_until, если есть дата полива
+            var daysUntil: Int? = nil
+            if let selectedDate = selectedDate {
+                let calendar = Calendar.current
+                let today = calendar.startOfDay(for: Date())
+                let selected = calendar.startOfDay(for: selectedDate)
+                let components = calendar.dateComponents([.day], from: today, to: selected)
+                daysUntil = components.day
+            }
+            
+            guard let qty = Int(quantity), qty > 0 else {
+                throw APIError(detail: "Количество должно быть положительным числом")
+            }
+            
+            let update = PlantInstanceUpdate(
+                plant_type_id: nil, // Не меняем тип растения
+                quantity: qty,
+                note: nil, // Не меняем заметку
+                next_watering_date: nextWateringDateString,
+                days_until: daysUntil
+            )
+            
+            _ = try await APIService.shared.updatePlantInstance(
+                greenhouseId: greenhouseId,
+                plantInstanceId: plantInstance.id,
+                update: update
+            )
+            
+            print("✅ Растение успешно обновлено")
+            
+            await MainActor.run {
+                isSaving = false
+                dismiss()
+            }
+            
+            // Обновляем данные
+            onUpdateComplete()
+        } catch {
+            print("❌ Ошибка обновления растения: \(error)")
+            await MainActor.run {
+                isSaving = false
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.detail
+                } else {
+                    errorMessage = "Ошибка обновления: \(error.localizedDescription)"
                 }
             }
         }

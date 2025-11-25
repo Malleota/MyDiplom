@@ -173,3 +173,11 @@ struct PlantInstanceOut: Codable, Identifiable {
     let note: String?
 }
 
+struct PlantInstanceUpdate: Codable {
+    let plant_type_id: String?
+    let quantity: Int?
+    let note: String?
+    let next_watering_date: String?
+    let days_until: Int?
+}
+

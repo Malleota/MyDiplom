@@ -885,5 +885,56 @@ class APIService {
             throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
         }
     }
+    
+    /// Обновить растение в теплице
+    func updatePlantInstance(greenhouseId: String, plantInstanceId: String, update: PlantInstanceUpdate) async throws -> PlantInstanceOut {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ updatePlantInstance: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/greenhouses/\(greenhouseId)/plants/\(plantInstanceId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(update)
+        
+        print("🌱 updatePlantInstance: Обновление растения \(plantInstanceId) в теплице \(greenhouseId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ updatePlantInstance: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🌱 updatePlantInstance: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let updatedPlant = try decoder.decode(PlantInstanceOut.self, from: data)
+            print("✅ updatePlantInstance: Растение успешно обновлено")
+            return updatedPlant
+        } else if httpResponse.statusCode == 401 {
+            print("❌ updatePlantInstance: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ updatePlantInstance: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Только администратор может редактировать растения")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ updatePlantInstance: Ошибка 404 - Растение не найдено")
+            throw APIError(detail: "Растение не найдено")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ updatePlantInstance: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
 }
 
