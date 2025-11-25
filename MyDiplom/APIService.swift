@@ -693,6 +693,65 @@ class APIService {
         }
     }
     
+    /// Создать событие полива/удобрения
+    func createWateringEvent(greenhouseId: String, plantInstanceId: String?, type: String = "watering", comment: String? = nil) async throws -> WaterEventOut {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ createWateringEvent: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/watering-events")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let wateringEvent = WaterEventCreate(
+            greenhouse_id: greenhouseId,
+            user_id: nil, // Используется текущий пользователь
+            plant_instance_id: plantInstanceId,
+            type: type,
+            comment: comment
+        )
+        
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(wateringEvent)
+        
+        print("💧 createWateringEvent: Создание события полива для теплицы \(greenhouseId), растение \(plantInstanceId ?? "nil")")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ createWateringEvent: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("💧 createWateringEvent: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 201 {
+            let decoder = JSONDecoder()
+            let event = try decoder.decode(WaterEventOut.self, from: data)
+            print("✅ createWateringEvent: Событие полива успешно создано")
+            return event
+        } else if httpResponse.statusCode == 401 {
+            print("❌ createWateringEvent: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ createWateringEvent: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен к этой теплице")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ createWateringEvent: Ошибка 404 - Теплица не найдена")
+            throw APIError(detail: "Теплица не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ createWateringEvent: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
     // MARK: - Plant Instances
     
     /// Получить список растений в теплице

@@ -118,32 +118,32 @@ class WebSocketManager: ObservableObject {
         guard let task = webSocketTask else { return }
         
         task.receive { [weak self] result in
+            guard let strongSelf = self else { return }
+            
             Task { @MainActor in
-                guard let self = self else { return }
-                
                 switch result {
                 case .success(let message):
                     switch message {
                     case .string(let text):
-                        self.handleMessage(text)
+                        strongSelf.handleMessage(text)
                     case .data(let data):
                         if let text = String(data: data, encoding: .utf8) {
-                            self.handleMessage(text)
+                            strongSelf.handleMessage(text)
                         }
                     @unknown default:
                         break
                     }
                     
                     // Продолжаем слушать
-                    self.receiveMessage()
+                    strongSelf.receiveMessage()
                     
                 case .failure(let error):
                     print("❌ WebSocket: Ошибка получения сообщения: \(error.localizedDescription)")
-                    self.isConnected = false
-                    self.connectionError = error.localizedDescription
+                    strongSelf.isConnected = false
+                    strongSelf.connectionError = error.localizedDescription
                     
                     // Пытаемся переподключиться
-                    self.scheduleReconnect()
+                    strongSelf.scheduleReconnect()
                 }
             }
         }

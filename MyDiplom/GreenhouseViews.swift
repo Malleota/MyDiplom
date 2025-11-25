@@ -736,9 +736,34 @@ struct GreenhouseDetailView: View {
                                 LazyVStack(spacing: 12) {
                                     ForEach(sortedPlantInstances) { plantInstance in
                                         PlantCardView(
+                                            greenhouseId: greenhouseId,
                                             plantInstance: plantInstance,
                                             plantType: plantTypes[plantInstance.plant_type_id],
-                                            nextWatering: plantWaterings[plantInstance.id]
+                                            nextWatering: plantWaterings[plantInstance.id],
+                                            onWateringComplete: {
+                                                // Обновляем данные о поливе после полива
+                                                Task {
+                                                    // Ждем немного, чтобы сервер успел пересчитать данные
+                                                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда
+                                                    
+                                                    // Обновляем данные о растениях и поливах
+                                                    await loadPlants()
+                                                    
+                                                    // Делаем еще одну попытку обновления через небольшую задержку
+                                                    // на случай, если сервер еще не успел пересчитать
+                                                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+                                                    await loadPlants()
+                                                    
+                                                    // Обновляем данные о поливе для теплицы (для карточки в списке)
+                                                    // Загружаем greenhouse для обновления данных о поливе
+                                                    do {
+                                                        let gh = try await APIService.shared.getGreenhouse(id: greenhouseId)
+                                                        await wateringDataManager.loadNextWateringForGreenhouse(gh)
+                                                    } catch {
+                                                        print("❌ Ошибка загрузки теплицы для обновления данных о поливе: \(error)")
+                                                    }
+                                                }
+                                            }
                                         )
                                     }
                                 }
@@ -1219,9 +1244,23 @@ struct SensorDataCard: View {
 // MARK: - Plant Card View
 
 struct PlantCardView: View {
+    let greenhouseId: String
     let plantInstance: PlantInstanceOut
     let plantType: PlantTypeOut?
     let nextWatering: NextWateringOut?
+    let onWateringComplete: () -> Void
+    
+    @State private var isWatering = false
+    @State private var errorMessage: String?
+    
+    // Проверяем, нужно ли показывать кнопку "Полить"
+    private var shouldShowWaterButton: Bool {
+        guard let nextWatering = nextWatering else { return false }
+        if let daysUntil = nextWatering.days_until {
+            return nextWatering.is_overdue || daysUntil == 0
+        }
+        return false
+    }
     
     var body: some View {
         HStack(spacing: 12) {
@@ -1288,14 +1327,84 @@ struct PlantCardView: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
+                
+                // Сообщение об ошибке
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(DesignColor.mainRed)
+                }
             }
             
             Spacer()
+            
+            // Кнопка "Полить"
+            if shouldShowWaterButton {
+                Button(action: {
+                    Task {
+                        await waterPlant()
+                    }
+                }) {
+                    if isWatering {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Text("Полить")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.white)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(DesignColor.mainAccent)
+                .cornerRadius(8)
+                .disabled(isWatering)
+            }
         }
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+    }
+    
+    private func waterPlant() async {
+        await MainActor.run {
+            isWatering = true
+            errorMessage = nil
+        }
+        
+        do {
+            _ = try await APIService.shared.createWateringEvent(
+                greenhouseId: greenhouseId,
+                plantInstanceId: plantInstance.id,
+                type: "watering",
+                comment: nil
+            )
+            
+            print("✅ Полив успешно выполнен для растения \(plantInstance.id)")
+            
+            // Ждем немного, чтобы сервер успел пересчитать данные о поливе
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+            
+            // Обновляем данные
+            await MainActor.run {
+                isWatering = false
+            }
+            
+            // Вызываем callback для обновления данных
+            onWateringComplete()
+        } catch {
+            print("❌ Ошибка полива: \(error)")
+            await MainActor.run {
+                isWatering = false
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.detail
+                } else {
+                    errorMessage = "Ошибка полива: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 }
 
