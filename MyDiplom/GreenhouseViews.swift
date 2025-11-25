@@ -458,6 +458,12 @@ class GreenhouseListViewModel: ObservableObject {
 struct CreateGreenhouseView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = CreateGreenhouseViewModel()
+    @State private var selectedSegment: ContentSegment = .plants
+    
+    enum ContentSegment: String, CaseIterable {
+        case plants = "Растения"
+        case workers = "Рабочие"
+    }
     
     var body: some View {
         NavigationView {
@@ -574,53 +580,92 @@ struct CreateGreenhouseView: View {
                         }
                     }
                     
-                    // Добавление растений
+                    // Растения и рабочие с сегментированным контролом
                     VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            Text("Растения")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundColor(.secondary)
-                            
-                            Spacer()
-                            
-                            Button(action: {
-                                viewModel.addPlant()
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "plus.circle.fill")
-                                    Text("Добавить")
-                                }
-                                .font(.subheadline)
-                                .foregroundColor(DesignColor.mainAccent)
+                        // Сегментированный контрол
+                        Picker("", selection: $selectedSegment) {
+                            ForEach(ContentSegment.allCases, id: \.self) { segment in
+                                Text(segment.rawValue).tag(segment)
                             }
                         }
+                        .pickerStyle(SegmentedPickerStyle())
                         
-                        if viewModel.isLoadingPlantTypes {
-                            ProgressView("Загрузка типов растений...")
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                        } else if viewModel.plants.isEmpty {
-                            Text("Растения не добавлены")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding()
-                        } else {
-                            ForEach(Array(viewModel.plants.enumerated()), id: \.element.id) { index, plant in
-                                PlantSelectionRow(
-                                    plant: plant,
-                                    availablePlantTypes: viewModel.availablePlantTypes,
-                                    onRemove: {
-                                        viewModel.removePlant(at: index)
-                                    },
-                                    onPlantTypeChanged: { plantTypeId in
-                                        viewModel.updatePlantType(at: index, plantTypeId: plantTypeId)
-                                    },
-                                    onQuantityChanged: { quantity in
-                                        viewModel.updatePlantQuantity(at: index, quantity: quantity)
+                        // Контент в зависимости от выбранного сегмента
+                        if selectedSegment == .plants {
+                            // Растения
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Spacer()
+                                    
+                                    Button(action: {
+                                        viewModel.addPlant()
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "plus.circle.fill")
+                                            Text("Добавить")
+                                        }
+                                        .font(.subheadline)
+                                        .foregroundColor(DesignColor.mainAccent)
                                     }
-                                )
+                                }
+                                
+                                if viewModel.isLoadingPlantTypes {
+                                    ProgressView("Загрузка типов растений...")
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                } else if viewModel.plants.isEmpty {
+                                    Text("Растения не добавлены")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                        .padding()
+                                } else {
+                                    ForEach(Array(viewModel.plants.enumerated()), id: \.element.id) { index, plant in
+                                        PlantSelectionRow(
+                                            plant: plant,
+                                            availablePlantTypes: viewModel.availablePlantTypes,
+                                            onRemove: {
+                                                viewModel.removePlant(at: index)
+                                            },
+                                            onPlantTypeChanged: { plantTypeId in
+                                                viewModel.updatePlantType(at: index, plantTypeId: plantTypeId)
+                                            },
+                                            onQuantityChanged: { quantity in
+                                                viewModel.updatePlantQuantity(at: index, quantity: quantity)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            // Рабочие
+                            VStack(alignment: .leading, spacing: 12) {
+                                if viewModel.isLoadingWorkers {
+                                    ProgressView("Загрузка рабочих...")
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                } else if viewModel.availableWorkers.isEmpty {
+                                    Text("Нет доступных рабочих")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                        .padding()
+                                } else {
+                                    ScrollView {
+                                        VStack(spacing: 12) {
+                                            ForEach(viewModel.availableWorkers) { worker in
+                                                WorkerSelectionRow(
+                                                    worker: worker,
+                                                    isSelected: viewModel.selectedWorkerIds.contains(worker.id),
+                                                    onToggle: {
+                                                        viewModel.toggleWorker(worker.id)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    .frame(maxHeight: 300)
+                                }
                             }
                         }
                     }
@@ -670,10 +715,13 @@ class CreateGreenhouseViewModel: ObservableObject {
     @Published var description: String = ""
     @Published var selectedImageId: String? = nil
     @Published var plants: [PlantSelection] = []
+    @Published var selectedWorkerIds: [String] = []
     @Published var availableImages: [GreenhouseImageOut] = []
     @Published var availablePlantTypes: [PlantTypeOut] = []
+    @Published var availableWorkers: [UserOut] = []
     @Published var isLoadingImages = false
     @Published var isLoadingPlantTypes = false
+    @Published var isLoadingWorkers = false
     @Published var isSaving = false
     @Published var errorMessage: String? = nil
     @Published var isSuccess = false
@@ -686,6 +734,7 @@ class CreateGreenhouseViewModel: ObservableObject {
     func loadData() async {
         await loadImages()
         await loadPlantTypes()
+        await loadWorkers()
     }
     
     func loadImages() async {
@@ -720,6 +769,27 @@ class CreateGreenhouseViewModel: ObservableObject {
         } catch {
             print("❌ Ошибка загрузки типов растений: \(error)")
             errorMessage = "Ошибка загрузки типов растений: \(error.localizedDescription)"
+        }
+    }
+    
+    func loadWorkers() async {
+        isLoadingWorkers = true
+        defer { isLoadingWorkers = false }
+        
+        do {
+            availableWorkers = try await APIService.shared.getWorkers()
+            print("👷 loadWorkers: Загружено \(availableWorkers.count) рабочих")
+        } catch {
+            print("❌ Ошибка загрузки рабочих: \(error)")
+            // Не показываем ошибку как критическую, просто логируем
+        }
+    }
+    
+    func toggleWorker(_ workerId: String) {
+        if selectedWorkerIds.contains(workerId) {
+            selectedWorkerIds.removeAll { $0 == workerId }
+        } else {
+            selectedWorkerIds.append(workerId)
         }
     }
     
@@ -774,7 +844,7 @@ class CreateGreenhouseViewModel: ObservableObject {
             description: description.trimmingCharacters(in: .whitespaces).isEmpty ? nil : description.trimmingCharacters(in: .whitespaces),
             image_url: imageUrl,
             plants: plantInstances?.isEmpty == false ? plantInstances : nil,
-            worker_ids: nil,
+            worker_ids: selectedWorkerIds.isEmpty ? nil : selectedWorkerIds,
             sensor_ble_identifier: nil
         )
         
@@ -1112,6 +1182,84 @@ struct PlantPickerView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Worker Selection Row
+
+struct WorkerSelectionRow: View {
+    let worker: UserOut
+    let isSelected: Bool
+    let onToggle: () -> Void
+    
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 12) {
+                // Аватар рабочего
+                if let avatarUrl = worker.avatar_url, let url = URL(string: avatarUrl) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .frame(width: 50, height: 50)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        case .failure:
+                            Circle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(width: 50, height: 50)
+                                .overlay(
+                                    Image(systemName: "person.fill")
+                                        .foregroundColor(.gray)
+                                )
+                        @unknown default:
+                            Circle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(width: 50, height: 50)
+                        }
+                    }
+                    .frame(width: 50, height: 50)
+                    .clipShape(Circle())
+                } else {
+                    Circle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 50, height: 50)
+                        .overlay(
+                            Image(systemName: "person.fill")
+                                .foregroundColor(.gray)
+                        )
+                }
+                
+                // Информация о рабочем
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(worker.name)
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    Text(worker.email)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                // Индикатор выбора
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(isSelected ? DesignColor.mainAccent : .gray)
+                    .font(.title3)
+            }
+            .padding()
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? DesignColor.mainAccent : Color.clear, lineWidth: 2)
+            )
+            .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

@@ -32,7 +32,7 @@ struct RegisterRequest: Codable {
     let role: String  // "worker" или "admin"
 }
 
-struct UserOut: Codable {
+struct UserOut: Codable, Identifiable {
     let id: String
     let email: String
     let name: String
