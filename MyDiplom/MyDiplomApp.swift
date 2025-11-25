@@ -12,6 +12,7 @@ struct MyDiplomApp: App {
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var sensorDataManager = SensorDataManager.shared
     @StateObject private var wateringDataManager = WateringDataManager.shared
+    @StateObject private var fertilizingDataManager = FertilizingDataManager.shared
     
     var body: some Scene {
         WindowGroup {
@@ -19,6 +20,7 @@ struct MyDiplomApp: App {
                 MainTabView()
                     .environmentObject(sensorDataManager)
                     .environmentObject(wateringDataManager)
+                    .environmentObject(fertilizingDataManager)
                     // Обновление запускается автоматически при появлении экранов с sensor_id
             } else {
                 AuthContainerView()

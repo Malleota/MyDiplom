@@ -15,6 +15,7 @@ struct GreenhouseListView: View {
     @EnvironmentObject var bleManager: BLEManager
     @EnvironmentObject var sensorDataManager: SensorDataManager
     @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     @StateObject private var viewModel = GreenhouseListViewModel()
     @State private var showCreateGreenhouse = false
     
@@ -45,7 +46,8 @@ struct GreenhouseListView: View {
                                     GreenhouseCardView(
                                         greenhouse: greenhouse,
                                         sensorData: viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: bleManager, sensorDataManager: sensorDataManager),
-                                        nextWatering: wateringDataManager.getNextWatering(greenhouseId: greenhouse.id)
+                                        nextWatering: wateringDataManager.getNextWatering(greenhouseId: greenhouse.id),
+                                        nextFertilizing: fertilizingDataManager.getNextFertilizing(greenhouseId: greenhouse.id)
                                     )
                                 }
                                 .buttonStyle(PlainButtonStyle())
@@ -71,16 +73,18 @@ struct GreenhouseListView: View {
             }
             .task {
                 await viewModel.loadGreenhouses(bleManager: bleManager)
-                // Загружаем данные о поливах для всех теплиц
+                // Загружаем данные о поливах и удобрениях для всех теплиц
                 for greenhouse in viewModel.greenhouses {
                     await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
+                    await fertilizingDataManager.loadNextFertilizingForGreenhouse(greenhouse)
                 }
             }
             .refreshable {
                 await viewModel.loadGreenhouses(bleManager: bleManager)
-                // Обновляем данные о поливах для всех теплиц
+                // Обновляем данные о поливах и удобрениях для всех теплиц
                 for greenhouse in viewModel.greenhouses {
                     await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
+                    await fertilizingDataManager.loadNextFertilizingForGreenhouse(greenhouse)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GreenhouseUpdated"))) { _ in
@@ -122,7 +126,10 @@ struct GreenhouseListView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NextWateringUpdated"))) { _ in
                 // Обновляем UI при обновлении данных о поливах
             }
-            // Данные о поливах обновляются автоматически на бэкенде после создания события полива
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NextFertilizingUpdated"))) { _ in
+                // Обновляем UI при обновлении данных об удобрениях
+            }
+            // Данные о поливах и удобрениях обновляются автоматически на бэкенде после создания события
         }
     }
     
@@ -163,6 +170,7 @@ struct GreenhouseCardView: View {
     let greenhouse: GreenhouseOut
     let sensorData: SensorReadingOut?
     let nextWatering: NextWateringOut?
+    let nextFertilizing: NextWateringOut?
     
     var body: some View {
         HStack(spacing: 16) {
@@ -246,6 +254,41 @@ struct GreenhouseCardView: View {
                         }
                     } else {
                         Label("Загрузка...", systemImage: "drop.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    // Время до следующего удобрения
+                    if let nextFertilizing = nextFertilizing {
+                        if let daysUntil = nextFertilizing.days_until {
+                            // Есть интервал, показываем дни до следующего удобрения
+                            if nextFertilizing.is_overdue {
+                                Label("Удобрение просрочено на \(abs(daysUntil)) дн.", systemImage: "leaf.fill")
+                                    .font(.subheadline)
+                                    .foregroundColor(.red)
+                            } else if daysUntil == 0 {
+                                Label("Удобрение сегодня", systemImage: "leaf.fill")
+                                    .font(.subheadline)
+                                    .foregroundColor(.orange)
+                            } else {
+                                Label("Удобрение через \(daysUntil) дн.", systemImage: "leaf.fill")
+                                    .font(.subheadline)
+                                    .foregroundColor(.green)
+                            }
+                        } else if let lastFertilizingDate = nextFertilizing.next_watering_date {
+                            // Нет интервала, но есть дата последнего удобрения
+                            // Показываем дату последнего удобрения
+                            Label("Последнее удобрение: \(formatDate(lastFertilizingDate))", systemImage: "leaf.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        } else {
+                            // Нет данных об удобрении
+                            Label("Удобрение не запланировано", systemImage: "leaf.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        Label("Загрузка...", systemImage: "leaf.fill")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -448,6 +491,7 @@ struct GreenhouseDetailView: View {
     @EnvironmentObject var bleManager: BLEManager
     @EnvironmentObject var sensorDataManager: SensorDataManager
     @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     @State private var greenhouse: GreenhouseOut?
     @State private var sensorData: SensorReadingOut?
     @State private var isLoading = true
@@ -459,6 +503,7 @@ struct GreenhouseDetailView: View {
     @State private var plantInstances: [PlantInstanceOut] = []
     @State private var plantTypes: [String: PlantTypeOut] = [:] // plant_type_id -> PlantTypeOut
     @State private var plantWaterings: [String: NextWateringOut] = [:] // plant_instance_id -> NextWateringOut
+    @State private var plantFertilizings: [String: NextWateringOut] = [:] // plant_instance_id -> NextWateringOut
     @State private var isLoadingPlants = false
     
     // Отсортированный список растений по поливу
@@ -740,6 +785,7 @@ struct GreenhouseDetailView: View {
                                             plantInstance: plantInstance,
                                             plantType: plantTypes[plantInstance.plant_type_id],
                                             nextWatering: plantWaterings[plantInstance.id],
+                                            nextFertilizing: plantFertilizings[plantInstance.id],
                                             onWateringComplete: {
                                                 // Обновляем данные о поливе после полива
                                                 Task {
@@ -883,6 +929,18 @@ struct GreenhouseDetailView: View {
             }
             await MainActor.run {
                 plantWaterings = wateringDict
+            }
+            
+            // Загружаем данные об удобрении для каждого растения
+            let fertilizings = try await APIService.shared.getNextFertilizingForPlants(greenhouseId: greenhouseId)
+            var fertilizingDict: [String: NextWateringOut] = [:]
+            for fertilizing in fertilizings {
+                if let plantInstanceId = fertilizing.plant_instance_id {
+                    fertilizingDict[plantInstanceId] = fertilizing
+                }
+            }
+            await MainActor.run {
+                plantFertilizings = fertilizingDict
             }
             
             // Загружаем информацию о типах растений
@@ -1248,9 +1306,11 @@ struct PlantCardView: View {
     let plantInstance: PlantInstanceOut
     let plantType: PlantTypeOut?
     let nextWatering: NextWateringOut?
+    let nextFertilizing: NextWateringOut?
     let onWateringComplete: () -> Void
     
     @State private var isWatering = false
+    @State private var isFertilizing = false
     @State private var errorMessage: String?
     @State private var showEditPlant = false
     
@@ -1264,6 +1324,15 @@ struct PlantCardView: View {
         guard let nextWatering = nextWatering else { return false }
         if let daysUntil = nextWatering.days_until {
             return nextWatering.is_overdue || daysUntil == 0
+        }
+        return false
+    }
+    
+    // Проверяем, нужно ли показывать кнопку "Удобрить"
+    private var shouldShowFertilizeButton: Bool {
+        guard let nextFertilizing = nextFertilizing else { return false }
+        if let daysUntil = nextFertilizing.days_until {
+            return nextFertilizing.is_overdue || daysUntil == 0
         }
         return false
     }
@@ -1339,6 +1408,40 @@ struct PlantCardView: View {
                         .foregroundColor(.secondary)
                 }
                 
+                // Данные об удобрении
+                if let nextFertilizing = nextFertilizing {
+                    if let daysUntil = nextFertilizing.days_until {
+                        // Есть интервал, показываем дни до следующего удобрения
+                        if nextFertilizing.is_overdue {
+                            Label("Удобрение просрочено на \(abs(daysUntil)) дн.", systemImage: "leaf.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.red)
+                        } else if daysUntil == 0 {
+                            Label("Удобрение сегодня", systemImage: "leaf.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.orange)
+                        } else {
+                            Label("Удобрение через \(daysUntil) дн.", systemImage: "leaf.fill")
+                                .font(.subheadline)
+                                .foregroundColor(.green)
+                        }
+                    } else if let lastFertilizingDate = nextFertilizing.next_watering_date {
+                        // Нет интервала, но есть дата последнего удобрения
+                        Label("Последнее удобрение: \(formatDate(lastFertilizingDate))", systemImage: "leaf.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    } else {
+                        // Нет данных об удобрении
+                        Label("Удобрение не запланировано", systemImage: "leaf.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    Label("Загрузка...", systemImage: "leaf.fill")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
                 // Сообщение об ошибке
                 if let error = errorMessage {
                     Text(error)
@@ -1349,28 +1452,55 @@ struct PlantCardView: View {
             
             Spacer()
             
-            // Кнопка "Полить"
-            if shouldShowWaterButton {
-                Button(action: {
-                    Task {
-                        await waterPlant()
+            // Кнопки действий
+            HStack(spacing: 8) {
+                // Кнопка "Полить"
+                if shouldShowWaterButton {
+                    Button(action: {
+                        Task {
+                            await waterPlant()
+                        }
+                    }) {
+                        if isWatering {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Text("Полить")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white)
+                        }
                     }
-                }) {
-                    if isWatering {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else {
-                        Text("Полить")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(.white)
-                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(DesignColor.mainAccent)
+                    .cornerRadius(8)
+                    .disabled(isWatering || isFertilizing)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(DesignColor.mainAccent)
-                .cornerRadius(8)
-                .disabled(isWatering)
+                
+                // Кнопка "Удобрить"
+                if shouldShowFertilizeButton {
+                    Button(action: {
+                        Task {
+                            await fertilizePlant()
+                        }
+                    }) {
+                        if isFertilizing {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Text("Удобрить")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.green)
+                    .cornerRadius(8)
+                    .disabled(isWatering || isFertilizing)
+                }
             }
         }
         .padding()
@@ -1433,6 +1563,45 @@ struct PlantCardView: View {
                     errorMessage = apiError.detail
                 } else {
                     errorMessage = "Ошибка полива: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    private func fertilizePlant() async {
+        await MainActor.run {
+            isFertilizing = true
+            errorMessage = nil
+        }
+        
+        do {
+            _ = try await APIService.shared.createWateringEvent(
+                greenhouseId: greenhouseId,
+                plantInstanceId: plantInstance.id,
+                type: "fertilizing",
+                comment: nil
+            )
+            
+            print("✅ Удобрение успешно выполнено для растения \(plantInstance.id)")
+            
+            // Ждем немного, чтобы сервер успел пересчитать данные об удобрении
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+            
+            // Обновляем данные
+            await MainActor.run {
+                isFertilizing = false
+            }
+            
+            // Вызываем callback для обновления данных
+            onWateringComplete()
+        } catch {
+            print("❌ Ошибка удобрения: \(error)")
+            await MainActor.run {
+                isFertilizing = false
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.detail
+                } else {
+                    errorMessage = "Ошибка удобрения: \(error.localizedDescription)"
                 }
             }
         }

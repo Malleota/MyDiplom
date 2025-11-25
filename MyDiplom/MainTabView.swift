@@ -13,6 +13,7 @@ struct MainTabView: View {
     @StateObject private var bleManager = BLEManager()
     @EnvironmentObject var sensorDataManager: SensorDataManager
     @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     @State private var selectedTab = 0
     
     var isAdmin: Bool {
@@ -41,6 +42,7 @@ struct MainTabView: View {
                 .environmentObject(bleManager)
                 .environmentObject(sensorDataManager)
                 .environmentObject(wateringDataManager)
+                .environmentObject(fertilizingDataManager)
                 .tabItem {
                     Label("Теплицы", systemImage: "building.2.fill")
                 }
@@ -225,11 +227,13 @@ struct GreenhousesView: View {
     @EnvironmentObject var bleManager: BLEManager
     @EnvironmentObject var sensorDataManager: SensorDataManager
     @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     var body: some View {
         GreenhouseListView()
             .environmentObject(bleManager)
             .environmentObject(sensorDataManager)
             .environmentObject(wateringDataManager)
+            .environmentObject(fertilizingDataManager)
     }
 }
 
