@@ -237,30 +237,6 @@ struct GreenhousesView: View {
     }
 }
 
-// MARK: - Workers View (Работники)
-struct WorkersView: View {
-    var body: some View {
-        NavigationView {
-            VStack {
-                Spacer()
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(.purple)
-                Text("Работники")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .padding(.top, 16)
-                Text("Здесь будет список работников")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 8)
-                Spacer()
-            }
-            .navigationTitle("Работники")
-        }
-    }
-}
-
 // MARK: - Device List View
 struct DeviceListView: View {
     @ObservedObject var manager: BLEManager

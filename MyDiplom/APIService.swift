@@ -969,6 +969,55 @@ class APIService {
         }
     }
     
+    /// Получить список всех пользователей (доступно только для админа)
+    func getAllUsers() async throws -> [UserOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        // Проверяем, является ли пользователь админом
+        guard let currentUser = AuthManager.shared.currentUser, currentUser.role == "admin" else {
+            print("⚠️ getAllUsers: Доступ запрещен - требуется роль admin")
+            throw APIError(detail: "Доступ запрещен. Требуется роль администратора")
+        }
+        
+        let url = URL(string: "\(baseURL)/users")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("👥 getAllUsers: Запрос списка всех пользователей с URL: \(url.absoluteString)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("👥 getAllUsers: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let users = try decoder.decode([UserOut].self, from: data)
+            print("✅ getAllUsers: Загружено \(users.count) пользователей")
+            return users
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getAllUsers: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ getAllUsers: Ошибка 403 - Доступ запрещен (требуется роль admin)")
+            throw APIError(detail: "Доступ запрещен. Требуется роль администратора")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getAllUsers: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            print("❌ getAllUsers: Ошибка сервера (код \(httpResponse.statusCode))")
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
+    
     /// Получить список всех рабочих (пользователей с ролью worker)
     /// Использует endpoint /users (доступен только для админа) и фильтрует по роли worker
     func getWorkers() async throws -> [UserOut] {
