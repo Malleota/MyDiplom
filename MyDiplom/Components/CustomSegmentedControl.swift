@@ -40,14 +40,12 @@ struct CustomSegmentedControl<SelectionValue: Hashable>: View {
                     HStack(spacing: 6) {
                         if let icon = item.icon {
                             Image(systemName: icon)
-                                .font(.caption)
-                                .fontWeight(.medium)
+                                .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(isSelected ? item.color.opacity(0.8) : item.color.opacity(0.8))
                         }
                         
                         Text(item.title)
-                            .font(.caption)
-                            .fontWeight(.medium)
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundColor(isSelected ? item.color.opacity(0.8) : item.color.opacity(0.8))
                     }
                     .frame(maxWidth: .infinity)

@@ -710,7 +710,7 @@ class APIService {
     }
     
     /// Получить список событий полива
-    func getWateringEvents(greenhouseId: String? = nil, dateFrom: String? = nil, dateTo: String? = nil) async throws -> [WaterEventOut] {
+    func getWateringEvents(greenhouseId: String? = nil, userId: String? = nil, dateFrom: String? = nil, dateTo: String? = nil) async throws -> [WaterEventOut] {
         guard let token = AuthManager.shared.accessToken else {
             print("❌ getWateringEvents: Нет токена авторизации")
             throw APIError(detail: "Не авторизован")
@@ -721,6 +721,9 @@ class APIService {
         
         if let greenhouseId = greenhouseId {
             queryItems.append(URLQueryItem(name: "greenhouse_id", value: greenhouseId))
+        }
+        if let userId = userId {
+            queryItems.append(URLQueryItem(name: "user_id", value: userId))
         }
         if let dateFrom = dateFrom {
             queryItems.append(URLQueryItem(name: "date_from", value: dateFrom))
@@ -1309,7 +1312,7 @@ class APIService {
     }
     
     /// Получить список событий удобрения
-    func getFertilizingEvents(greenhouseId: String? = nil, dateFrom: String? = nil, dateTo: String? = nil) async throws -> [WaterEventOut] {
+    func getFertilizingEvents(greenhouseId: String? = nil, userId: String? = nil, dateFrom: String? = nil, dateTo: String? = nil) async throws -> [WaterEventOut] {
         guard let token = AuthManager.shared.accessToken else {
             print("❌ getFertilizingEvents: Нет токена авторизации")
             throw APIError(detail: "Не авторизован")
@@ -1320,6 +1323,9 @@ class APIService {
         
         if let greenhouseId = greenhouseId {
             queryItems.append(URLQueryItem(name: "greenhouse_id", value: greenhouseId))
+        }
+        if let userId = userId {
+            queryItems.append(URLQueryItem(name: "user_id", value: userId))
         }
         if let dateFrom = dateFrom {
             queryItems.append(URLQueryItem(name: "date_from", value: dateFrom))
