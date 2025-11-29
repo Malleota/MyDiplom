@@ -20,6 +20,9 @@ enum DesignColor {
     static let mainRed = Color("MainRed")
     static let myBlue = Color("MyBlue")
     static let myBrown = Color("MyBrown")
+    static let myDarkBlue = Color("MyDarkBlue")
+    static let myPerple = Color("MyPerple")
+    static let myYellow = Color("MyYellow")
 }
 
 

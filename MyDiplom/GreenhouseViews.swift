@@ -618,12 +618,13 @@ struct CreateGreenhouseView: View {
                     // Растения и рабочие с сегментированным контролом
                     VStack(alignment: .leading, spacing: 16) {
                         // Сегментированный контрол
-                        Picker("", selection: $selectedSegment) {
-                            ForEach(ContentSegment.allCases, id: \.self) { segment in
-                                Text(segment.rawValue).tag(segment)
-                            }
-                        }
-                        .pickerStyle(SegmentedPickerStyle())
+                        CustomSegmentedControl(
+                            items: [
+                                SegmentItem(title: "Растения", icon: "leaf", color: DesignColor.mainAccent),
+                                SegmentItem(title: "Рабочие", icon: "person.2", color: DesignColor.myPerple)
+                            ],
+                            selection: $selectedSegment
+                        )
                         
                         // Контент в зависимости от выбранного сегмента
                         if selectedSegment == .plants {
@@ -1100,12 +1101,13 @@ struct EditGreenhouseView: View {
                     // Растения и работники с сегментированным контролом
                     VStack(alignment: .leading, spacing: 16) {
                         // Сегментированный контрол
-                        Picker("", selection: $viewModel.selectedSegment) {
-                            ForEach(EditContentSegment.allCases, id: \.self) { segment in
-                                Text(segment.rawValue).tag(segment)
-                            }
-                        }
-                        .pickerStyle(SegmentedPickerStyle())
+                        CustomSegmentedControl(
+                            items: [
+                                SegmentItem(title: "Растения", icon: "leaf", color: DesignColor.mainAccent),
+                                SegmentItem(title: "Рабочие", icon: "person.2", color: DesignColor.myPerple)
+                            ],
+                            selection: $viewModel.selectedSegment
+                        )
                         
                         // Контент в зависимости от выбранного сегмента
                         if viewModel.selectedSegment == .plants {
@@ -2860,12 +2862,20 @@ struct GreenhouseDetailView: View {
                             // TabView для вкладок
                             VStack(spacing: 0) {
                                 // Сегментированный контрол для выбора вкладки
-                                Picker("Вкладка", selection: $selectedTab) {
-                                    ForEach(availableTabs, id: \.self) { tab in
-                                        Text(tab.rawValue).tag(tab)
-                                    }
-                                }
-                                .pickerStyle(SegmentedPickerStyle())
+                                CustomSegmentedControl(
+                                    items: availableTabs.map { tab in
+                                        switch tab {
+                                        case .plants:
+                                            return SegmentItem(title: "Растения", icon: "leaf", color: DesignColor.mainAccent)
+                                        case .workers:
+                                            return SegmentItem(title: "Работники", icon: "person.2", color: DesignColor.myPerple)
+                                        case .reports:
+                                            return SegmentItem(title: "Отчеты", icon: "chart.bar", color: DesignColor.myYellow)
+                                        }
+                                    },
+                                    options: availableTabs,
+                                    selection: $selectedTab
+                                )
                                 .padding(.horizontal)
                                 .padding(.top, 16)
                                 
