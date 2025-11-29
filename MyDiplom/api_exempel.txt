@@ -274,6 +274,28 @@ def list_avatars():
 
 
 # --- Users (Admin only) ---
+@router.get("/users", response_model=List[UserOut])
+def list_users(admin: dict = Depends(require_admin)):
+    """Получение списка всех пользователей. Доступ: admin."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+            SELECT id, email, name, role, is_active, avatar_id, created_at
+            FROM users
+            ORDER BY created_at DESC
+        """
+            )
+        ).mappings().all()
+        
+        result = []
+        for r in rows:
+            user_data = enrich_user_with_avatar_url(dict(r), conn)
+            result.append(UserOut(**user_data))
+        
+        return result
+
+
 @router.patch("/users/{user_id}/role", response_model=UserOut)
 def update_user_role(
     user_id: str, payload: UserRoleUpdate, admin: dict = Depends(require_admin)
@@ -357,13 +379,21 @@ def list_greenhouses(current_user: dict = Depends(get_current_user)):
             """
             rows = conn.execute(text(sql)).mappings().all()
         else:
+            # Рабочий видит только те теплицы, к которым он привязан И где есть хотя бы один активный рабочий
             sql = """
-                SELECT g.id, g.name, g.description, g.image_url, g.sensor_id,
+                SELECT DISTINCT g.id, g.name, g.description, g.image_url, g.sensor_id,
                        g.target_temp_min, g.target_temp_max,
                        g.target_hum_min, g.target_hum_max, g.created_at
                 FROM greenhouses g
                 INNER JOIN user_greenhouses ug ON g.id = ug.greenhouse_id
                 WHERE ug.user_id = :user_id
+                AND EXISTS (
+                    SELECT 1 FROM user_greenhouses ug2
+                    INNER JOIN users u2 ON ug2.user_id = u2.id
+                    WHERE ug2.greenhouse_id = g.id
+                    AND u2.role = 'worker'
+                    AND u2.is_active = 1
+                )
                 ORDER BY g.created_at ASC
             """
             rows = conn.execute(text(sql), {"user_id": current_user["id"]}).mappings().all()
@@ -787,6 +817,41 @@ def unbind_worker(gh_id: str, user_id: str, admin: dict = Depends(require_admin)
         if deleted == 0:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Binding not found")
     logger.info("Рабочий %s отвязан от теплицы %s", user_id, gh_id)
+
+
+@router.get("/greenhouses/{gh_id}/workers", response_model=List[UserOut])
+def get_greenhouse_workers(gh_id: str, admin: dict = Depends(require_admin)):
+    """Получение списка рабочих, привязанных к теплице. Доступ: admin."""
+    with engine.connect() as conn:
+        # Проверка существования теплицы
+        gh_exists = conn.execute(
+            text("SELECT 1 FROM greenhouses WHERE id=:id"), {"id": gh_id}
+        ).scalar()
+        if not gh_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Greenhouse not found"
+            )
+        
+        rows = conn.execute(
+            text(
+                """
+            SELECT u.id, u.email, u.name, u.role, u.is_active, u.avatar_id, u.created_at
+            FROM users u
+            INNER JOIN user_greenhouses ug ON u.id = ug.user_id
+            WHERE ug.greenhouse_id = :gh_id
+            AND u.role = 'worker'
+            ORDER BY u.created_at DESC
+        """
+            ),
+            {"gh_id": gh_id},
+        ).mappings().all()
+        
+        result = []
+        for r in rows:
+            user_data = enrich_user_with_avatar_url(dict(r), conn)
+            result.append(UserOut(**user_data))
+        
+        return result
 
 
 # --- Plant types ---

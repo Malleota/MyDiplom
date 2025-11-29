@@ -259,10 +259,14 @@ class APIService {
     // MARK: - Greenhouses
     
     /// Получить список всех теплиц
+    /// Для админа возвращаются все теплицы, для рабочего - только привязанные
     func getGreenhouses() async throws -> [GreenhouseOut] {
         guard let token = AuthManager.shared.accessToken else {
             throw APIError(detail: "Не авторизован")
         }
+        
+        let userRole = AuthManager.shared.currentUser?.role ?? "unknown"
+        print("🏠 getGreenhouses: Запрос списка теплиц для пользователя с ролью: \(userRole)")
         
         let url = URL(string: "\(baseURL)/greenhouses")!
         var request = URLRequest(url: url)
@@ -277,14 +281,22 @@ class APIService {
         
         if httpResponse.statusCode == 200 {
             let decoder = JSONDecoder()
-            return try decoder.decode([GreenhouseOut].self, from: data)
+            let greenhouses = try decoder.decode([GreenhouseOut].self, from: data)
+            print("✅ getGreenhouses: Получено \(greenhouses.count) теплиц для пользователя с ролью \(userRole)")
+            if userRole == "worker" {
+                print("👷 getGreenhouses: Рабочий должен видеть только привязанные теплицы")
+            }
+            return greenhouses
         } else if httpResponse.statusCode == 401 {
+            print("❌ getGreenhouses: Ошибка 401 - Не авторизован")
             throw APIError(detail: "Не авторизован")
         } else {
             let decoder = JSONDecoder()
             if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getGreenhouses: Ошибка \(httpResponse.statusCode) - \(error.detail)")
                 throw APIError(detail: error.detail)
             }
+            print("❌ getGreenhouses: Ошибка сервера (код \(httpResponse.statusCode))")
             throw APIError(detail: "Ошибка сервера")
         }
     }
@@ -913,73 +925,56 @@ class APIService {
     }
     
     /// Получить список всех рабочих (пользователей с ролью worker)
+    /// Использует endpoint /users (доступен только для админа) и фильтрует по роли worker
     func getWorkers() async throws -> [UserOut] {
         guard let token = AuthManager.shared.accessToken else {
             throw APIError(detail: "Не авторизован")
         }
         
-        // Пробуем несколько вариантов endpoint
-        // Вариант 1: /users?role=worker
-        var url = URL(string: "\(baseURL)/users?role=worker")!
+        // Проверяем, является ли пользователь админом
+        guard let currentUser = AuthManager.shared.currentUser, currentUser.role == "admin" else {
+            print("⚠️ getWorkers: Доступ запрещен - требуется роль admin")
+            // Возвращаем пустой список для не-админов, чтобы не блокировать создание теплицы
+            return []
+        }
+        
+        let url = URL(string: "\(baseURL)/users")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
-        print("👷 getWorkers: Запрос списка рабочих с URL: \(url.absoluteString)")
+        print("👷 getWorkers: Запрос списка пользователей с URL: \(url.absoluteString)")
         
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw APIError(detail: "Неверный ответ сервера")
-            }
-            
-            print("👷 getWorkers: Статус ответа = \(httpResponse.statusCode)")
-            
-            if httpResponse.statusCode == 200 {
-                let decoder = JSONDecoder()
-                let users = try decoder.decode([UserOut].self, from: data)
-                // Фильтруем только активных рабочих
-                let workers = users.filter { $0.role == "worker" && $0.is_active }
-                print("✅ getWorkers: Загружено \(workers.count) рабочих")
-                return workers
-            } else if httpResponse.statusCode == 404 {
-                // Если endpoint не найден, пробуем /users без параметров
-                print("⚠️ getWorkers: Endpoint /users?role=worker не найден, пробуем /users")
-                url = URL(string: "\(baseURL)/users")!
-                request = URLRequest(url: url)
-                request.httpMethod = "GET"
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                
-                let (data2, response2) = try await URLSession.shared.data(for: request)
-                guard let httpResponse2 = response2 as? HTTPURLResponse else {
-                    print("⚠️ getWorkers: Endpoint /users не найден, возвращаем пустой список")
-                    return []
-                }
-                
-                if httpResponse2.statusCode == 200 {
-                    let decoder = JSONDecoder()
-                    let users = try decoder.decode([UserOut].self, from: data2)
-                    let workers = users.filter { $0.role == "worker" && $0.is_active }
-                    print("✅ getWorkers: Загружено \(workers.count) рабочих из /users")
-                    return workers
-                } else {
-                    print("⚠️ getWorkers: Endpoint /users не найден, возвращаем пустой список")
-                    return []
-                }
-            } else if httpResponse.statusCode == 401 {
-                throw APIError(detail: "Не авторизован")
-            } else {
-                let decoder = JSONDecoder()
-                if let error = try? decoder.decode(APIError.self, from: data) {
-                    throw APIError(detail: error.detail)
-                }
-                throw APIError(detail: "Ошибка сервера")
-            }
-        } catch {
-            print("⚠️ getWorkers: Ошибка при запросе, возвращаем пустой список: \(error.localizedDescription)")
-            // Возвращаем пустой список, чтобы не блокировать создание теплицы
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("👷 getWorkers: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let users = try decoder.decode([UserOut].self, from: data)
+            // Фильтруем только активных рабочих
+            let workers = users.filter { $0.role == "worker" && $0.is_active }
+            print("✅ getWorkers: Загружено \(workers.count) рабочих из \(users.count) пользователей")
+            return workers
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getWorkers: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("⚠️ getWorkers: Ошибка 403 - Доступ запрещен (требуется роль admin)")
+            // Возвращаем пустой список для не-админов
             return []
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getWorkers: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            print("❌ getWorkers: Ошибка сервера (код \(httpResponse.statusCode))")
+            throw APIError(detail: "Ошибка сервера")
         }
     }
     

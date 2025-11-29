@@ -327,7 +327,8 @@ class GreenhouseListViewModel: ObservableObject {
         
         do {
             let fetchedGreenhouses = try await APIService.shared.getGreenhouses()
-            print("📥 loadGreenhouses: Загружено \(fetchedGreenhouses.count) теплиц")
+            let userRole = AuthManager.shared.currentUser?.role ?? "unknown"
+            print("📥 loadGreenhouses: Загружено \(fetchedGreenhouses.count) теплиц для пользователя с ролью \(userRole)")
             
             // Если это не принудительная перезагрузка, обновляем только измененные теплицы
             // чтобы не пересоздавать NavigationLink и не закрывать открытый экран
