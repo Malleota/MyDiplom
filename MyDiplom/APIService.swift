@@ -1371,6 +1371,41 @@ class APIService {
         }
     }
     
+    /// Получить список теплиц, к которым привязан работник
+    func getWorkerGreenhouses(workerId: String) async throws -> [GreenhouseOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getWorkerGreenhouses: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        // Проверяем, является ли пользователь админом
+        guard let currentUser = AuthManager.shared.currentUser, currentUser.role == "admin" else {
+            print("⚠️ getWorkerGreenhouses: Доступ запрещен - требуется роль admin")
+            throw APIError(detail: "Доступ запрещен. Требуется роль администратора")
+        }
+        
+        // Получаем все теплицы
+        let allGreenhouses = try await getGreenhouses()
+        
+        // Для каждой теплицы проверяем, привязан ли к ней работник
+        var workerGreenhouses: [GreenhouseOut] = []
+        
+        for greenhouse in allGreenhouses {
+            do {
+                let workers = try await getGreenhouseWorkers(greenhouseId: greenhouse.id)
+                if workers.contains(where: { $0.id == workerId }) {
+                    workerGreenhouses.append(greenhouse)
+                }
+            } catch {
+                // Если не удалось получить работников для теплицы, пропускаем её
+                print("⚠️ getWorkerGreenhouses: Не удалось получить работников для теплицы \(greenhouse.id): \(error)")
+            }
+        }
+        
+        print("✅ getWorkerGreenhouses: Найдено \(workerGreenhouses.count) теплиц для работника \(workerId)")
+        return workerGreenhouses
+    }
+    
     /// Получить список работников, привязанных к теплице
     func getGreenhouseWorkers(greenhouseId: String) async throws -> [UserOut] {
         guard let token = AuthManager.shared.accessToken else {

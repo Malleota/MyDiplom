@@ -81,7 +81,10 @@ struct WorkersView: View {
                     ScrollView {
                         LazyVStack(spacing: 12) {
                             ForEach(filteredUsers) { user in
-                                UserRow(user: user)
+                                NavigationLink(destination: WorkerProfileView(user: user)) {
+                                    UserRow(user: user)
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
                         }
                         .padding(.horizontal)

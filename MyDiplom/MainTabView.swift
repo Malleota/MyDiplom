@@ -51,6 +51,10 @@ struct MainTabView: View {
             // Работники - только для админа
             if isAdmin {
                 WorkersView()
+                    .environmentObject(bleManager)
+                    .environmentObject(sensorDataManager)
+                    .environmentObject(wateringDataManager)
+                    .environmentObject(fertilizingDataManager)
                     .tabItem {
                         Label("Работники", systemImage: "person.2.fill")
                     }
