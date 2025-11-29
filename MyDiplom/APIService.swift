@@ -757,9 +757,11 @@ class APIService {
         
         if httpResponse.statusCode == 200 {
             let decoder = JSONDecoder()
-            let events = try decoder.decode([WaterEventOut].self, from: data)
-            print("✅ getWateringEvents: Получено \(events.count) событий полива")
-            return events
+            let allEvents = try decoder.decode([WaterEventOut].self, from: data)
+            // Фильтруем только события полива (сервер возвращает все события)
+            let wateringEvents = allEvents.filter { $0.type == "watering" }
+            print("✅ getWateringEvents: Получено \(wateringEvents.count) событий полива (из \(allEvents.count) всего)")
+            return wateringEvents
         } else if httpResponse.statusCode == 401 {
             print("❌ getWateringEvents: Ошибка 401 - Не авторизован")
             throw APIError(detail: "Не авторизован")

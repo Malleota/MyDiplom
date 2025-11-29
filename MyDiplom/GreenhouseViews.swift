@@ -9,6 +9,10 @@ import SwiftUI
 import Combine
 import CoreBluetooth
 
+// Глобальная блокировка для предотвращения одновременных операций полива/удобрения
+private let globalOperationLock = NSLock()
+private var activeOperations: Set<String> = [] // plantInstanceId -> активные операции
+
 // MARK: - Greenhouse List View
 
 struct GreenhouseListView: View {
@@ -2410,6 +2414,24 @@ struct GreenhouseDetailView: View {
         AuthManager.shared.currentUser?.role == "worker"
     }
     
+    // Дедуплицированные и отсортированные события для отчета
+    private var allReportEvents: [WaterEventOut] {
+        var uniqueEvents: [WaterEventOut] = []
+        var seenIds: Set<String> = []
+        for event in (wateringEvents + fertilizingEvents) {
+            if !seenIds.contains(event.id) {
+                seenIds.insert(event.id)
+                uniqueEvents.append(event)
+            } else {
+                print("⚠️ Обнаружен дубликат события в отчете: \(event.id), тип: \(event.type), дата: \(event.created_at)")
+            }
+        }
+        return uniqueEvents.sorted { event1, event2 in
+            // Сортируем по дате создания (новые сверху)
+            return event1.created_at > event2.created_at
+        }
+    }
+    
     // Доступные вкладки в зависимости от роли пользователя
     private var availableTabs: [DetailTab] {
         if isWorker {
@@ -2517,10 +2539,7 @@ struct GreenhouseDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding()
             } else {
-                let allEvents = (wateringEvents + fertilizingEvents).sorted { event1, event2 in
-                    // Сортируем по дате создания (новые сверху)
-                    return event1.created_at > event2.created_at
-                }
+                let allEvents = allReportEvents
                 
                 if allEvents.isEmpty {
                     VStack(spacing: 12) {
@@ -3588,8 +3607,39 @@ struct PlantCardView: View {
                 // Кнопка "Полить"
                 if shouldShowWaterButton {
                     Button(action: {
-                        Task {
+                        // АТОМАРНАЯ БЛОКИРОВКА: Используем глобальный NSLock для синхронной проверки
+                        globalOperationLock.lock()
+                        let isAlreadyActive = activeOperations.contains(plantInstance.id)
+                        if !isAlreadyActive {
+                            activeOperations.insert(plantInstance.id)
+                            print("🔒 waterPlant: Блокировка установлена для растения \(plantInstance.id)")
+                        }
+                        globalOperationLock.unlock()
+                        
+                        if isAlreadyActive {
+                            print("⚠️ Кнопка 'Полить' заблокирована, операция уже выполняется для растения \(plantInstance.id)")
+                            return
+                        }
+                        
+                        Task { @MainActor in
+                            // Дополнительная проверка на MainActor
+                            if isWatering || isFertilizing {
+                                print("⚠️ waterPlant: Операция уже выполняется, пропускаем (внутри Task)")
+                                globalOperationLock.lock()
+                                activeOperations.remove(plantInstance.id)
+                                globalOperationLock.unlock()
+                                return
+                            }
+                            isWatering = true
+                            print("🔒 waterPlant: Флаг установлен в Task перед вызовом функции")
+                            
                             await waterPlant()
+                            
+                            // Снимаем блокировку после завершения
+                            globalOperationLock.lock()
+                            activeOperations.remove(plantInstance.id)
+                            globalOperationLock.unlock()
+                            print("🔓 waterPlant: Блокировка снята для растения \(plantInstance.id)")
                         }
                     }) {
                         if isWatering {
@@ -3614,8 +3664,39 @@ struct PlantCardView: View {
                 // Кнопка "Удобрить"
                 if shouldShowFertilizeButton {
                     Button(action: {
-                        Task {
+                        // АТОМАРНАЯ БЛОКИРОВКА: Используем глобальный NSLock для синхронной проверки
+                        globalOperationLock.lock()
+                        let isAlreadyActive = activeOperations.contains(plantInstance.id)
+                        if !isAlreadyActive {
+                            activeOperations.insert(plantInstance.id)
+                            print("🔒 fertilizePlant: Блокировка установлена для растения \(plantInstance.id)")
+                        }
+                        globalOperationLock.unlock()
+                        
+                        if isAlreadyActive {
+                            print("⚠️ Кнопка 'Удобрить' заблокирована, операция уже выполняется для растения \(plantInstance.id)")
+                            return
+                        }
+                        
+                        Task { @MainActor in
+                            // Дополнительная проверка на MainActor
+                            if isWatering || isFertilizing {
+                                print("⚠️ fertilizePlant: Операция уже выполняется, пропускаем (внутри Task)")
+                                globalOperationLock.lock()
+                                activeOperations.remove(plantInstance.id)
+                                globalOperationLock.unlock()
+                                return
+                            }
+                            isFertilizing = true
+                            print("🔒 fertilizePlant: Флаг установлен в Task перед вызовом функции")
+                            
                             await fertilizePlant()
+                            
+                            // Снимаем блокировку после завершения
+                            globalOperationLock.lock()
+                            activeOperations.remove(plantInstance.id)
+                            globalOperationLock.unlock()
+                            print("🔓 fertilizePlant: Блокировка снята для растения \(plantInstance.id)")
                         }
                     }) {
                         if isFertilizing {
@@ -3666,12 +3747,34 @@ struct PlantCardView: View {
     }
     
     private func waterPlant() async {
-        await MainActor.run {
+        print("🔵 waterPlant: Начало выполнения для растения \(plantInstance.id)")
+        
+        // Дополнительная проверка на случай, если флаг не был установлен в обработчике
+        // (защита от прямого вызова функции)
+        let shouldProceed = await MainActor.run {
+            if isFertilizing {
+                print("⚠️ waterPlant: Операция удобрения уже выполняется, пропускаем вызов")
+                // Сбрасываем флаг полива, если он был установлен ошибочно
+                isWatering = false
+                return false
+            }
+            // Флаг уже должен быть установлен в обработчике кнопки
+            if !isWatering {
+                print("⚠️ waterPlant: Флаг не установлен, устанавливаем сейчас")
             isWatering = true
+            }
             errorMessage = nil
+            print("✅ waterPlant: Флаг проверен/установлен, начинаем создание события")
+            return true
+        }
+        
+        guard shouldProceed else {
+            print("❌ waterPlant: Вызов заблокирован, выходим")
+            return
         }
         
         do {
+            print("💧 waterPlant: Вызываем createWateringEvent для растения \(plantInstance.id)")
             _ = try await APIService.shared.createWateringEvent(
                 greenhouseId: greenhouseId,
                 plantInstanceId: plantInstance.id,
@@ -3701,16 +3804,43 @@ struct PlantCardView: View {
                     errorMessage = "Ошибка полива: \(error.localizedDescription)"
                 }
             }
+            // Снимаем блокировку в случае ошибки
+            globalOperationLock.lock()
+            activeOperations.remove(plantInstance.id)
+            globalOperationLock.unlock()
+            print("🔓 waterPlant: Блокировка снята после ошибки для растения \(plantInstance.id)")
         }
     }
     
     private func fertilizePlant() async {
-        await MainActor.run {
+        print("🟢 fertilizePlant: Начало выполнения для растения \(plantInstance.id)")
+        
+        // Дополнительная проверка на случай, если флаг не был установлен в обработчике
+        // (защита от прямого вызова функции)
+        let shouldProceed = await MainActor.run {
+            if isWatering {
+                print("⚠️ fertilizePlant: Операция полива уже выполняется, пропускаем вызов")
+                // Сбрасываем флаг удобрения, если он был установлен ошибочно
+                isFertilizing = false
+                return false
+            }
+            // Флаг уже должен быть установлен в обработчике кнопки
+            if !isFertilizing {
+                print("⚠️ fertilizePlant: Флаг не установлен, устанавливаем сейчас")
             isFertilizing = true
+            }
             errorMessage = nil
+            print("✅ fertilizePlant: Флаг проверен/установлен, начинаем создание события")
+            return true
+        }
+        
+        guard shouldProceed else {
+            print("❌ fertilizePlant: Вызов заблокирован, выходим")
+            return
         }
         
         do {
+            print("🌿 fertilizePlant: Вызываем createWateringEvent для растения \(plantInstance.id)")
             _ = try await APIService.shared.createWateringEvent(
                 greenhouseId: greenhouseId,
                 plantInstanceId: plantInstance.id,
@@ -3740,6 +3870,11 @@ struct PlantCardView: View {
                     errorMessage = "Ошибка удобрения: \(error.localizedDescription)"
                 }
             }
+            // Снимаем блокировку в случае ошибки
+            globalOperationLock.lock()
+            activeOperations.remove(plantInstance.id)
+            globalOperationLock.unlock()
+            print("🔓 fertilizePlant: Блокировка снята после ошибки для растения \(plantInstance.id)")
         }
     }
 }
