@@ -2187,7 +2187,80 @@ struct WorkerSelectionRow: View {
     }
 }
 
+// MARK: - Worker Row (Display Only)
+
+struct WorkerRow: View {
+    let worker: UserOut
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Аватар рабочего
+            if let avatarUrl = worker.avatar_url, let url = URL(string: avatarUrl) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .empty:
+                        ProgressView()
+                            .frame(width: 50, height: 50)
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    case .failure:
+                        Circle()
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(width: 50, height: 50)
+                            .overlay(
+                                Image(systemName: "person.fill")
+                                    .foregroundColor(.gray)
+                            )
+                    @unknown default:
+                        Circle()
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(width: 50, height: 50)
+                    }
+                }
+                .frame(width: 50, height: 50)
+                .clipShape(Circle())
+            } else {
+                Circle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 50, height: 50)
+                    .overlay(
+                        Image(systemName: "person.fill")
+                            .foregroundColor(.gray)
+                    )
+            }
+            
+            // Информация о рабочем
+            VStack(alignment: .leading, spacing: 4) {
+                Text(worker.name)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                Text(worker.email)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
+        )
+        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+    }
+}
+
 // MARK: - Greenhouse Detail View
+
+enum DetailTab: String, CaseIterable {
+    case plants = "Растения"
+    case workers = "Работники"
+}
 
 struct GreenhouseDetailView: View {
     let greenhouseId: String
@@ -2208,6 +2281,99 @@ struct GreenhouseDetailView: View {
     @State private var plantWaterings: [String: NextWateringOut] = [:] // plant_instance_id -> NextWateringOut
     @State private var plantFertilizings: [String: NextWateringOut] = [:] // plant_instance_id -> NextWateringOut
     @State private var isLoadingPlants = false
+    @State private var selectedTab: DetailTab = .plants
+    @State private var workers: [UserOut] = []
+    @State private var isLoadingWorkers = false
+    
+    // Контент вкладки "Растения"
+    private var plantsTabContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if isLoadingPlants {
+                ProgressView("Загрузка растений...")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            } else if plantInstances.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "leaf.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.gray)
+                    Text("Нет растений")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 32)
+            } else {
+                LazyVStack(spacing: 12) {
+                    ForEach(sortedPlantInstances) { plantInstance in
+                        PlantCardView(
+                            greenhouseId: greenhouseId,
+                            plantInstance: plantInstance,
+                            plantType: plantTypes[plantInstance.plant_type_id],
+                            nextWatering: plantWaterings[plantInstance.id],
+                            nextFertilizing: plantFertilizings[plantInstance.id],
+                            onWateringComplete: {
+                                // Обновляем данные о поливе после полива
+                                Task {
+                                    // Ждем немного, чтобы сервер успел пересчитать данные
+                                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда
+                                    
+                                    // Обновляем данные о растениях и поливах
+                                    await loadPlants()
+                                    
+                                    // Делаем еще одну попытку обновления через небольшую задержку
+                                    // на случай, если сервер еще не успел пересчитать
+                                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+                                    await loadPlants()
+                                    
+                                    // Обновляем данные о поливе для теплицы (для карточки в списке)
+                                    // Загружаем greenhouse для обновления данных о поливе
+                                    do {
+                                        let gh = try await APIService.shared.getGreenhouse(id: greenhouseId)
+                                        await wateringDataManager.loadNextWateringForGreenhouse(gh)
+                                    } catch {
+                                        print("❌ Ошибка загрузки теплицы для обновления данных о поливе: \(error)")
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 16)
+            }
+        }
+    }
+    
+    // Контент вкладки "Работники"
+    private var workersTabContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if isLoadingWorkers {
+                ProgressView("Загрузка работников...")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            } else if workers.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.gray)
+                    Text("Нет работников")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 32)
+            } else {
+                LazyVStack(spacing: 12) {
+                    ForEach(workers) { worker in
+                        WorkerRow(worker: worker)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 16)
+            }
+        }
+    }
     
     // Отсортированный список растений по поливу
     private var sortedPlantInstances: [PlantInstanceOut] {
@@ -2273,253 +2439,213 @@ struct GreenhouseDetailView: View {
             if isLoading {
                 ProgressView("Загрузка...")
             } else if let greenhouse = greenhouse {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        // Заголовок: Название и описание с картинкой
-                        HStack(alignment: .top, spacing: 12) {
-                            // Вертикальный контейнер с названием и описанием
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(greenhouse.name)
-                                    .font(.title)
-                                    .fontWeight(.bold)
-                                
-                                if let description = greenhouse.description {
-                                    Text(description)
-                                        .font(.callout)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(2)
-                                        .padding(.top, 8)
+                VStack(spacing: 0) {
+                    // Заголовок и данные датчика (всегда видимы)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            // Заголовок: Название и описание с картинкой
+                            HStack(alignment: .top, spacing: 12) {
+                                // Вертикальный контейнер с названием и описанием
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(greenhouse.name)
+                                        .font(.title)
+                                        .fontWeight(.bold)
+                                    
+                                    if let description = greenhouse.description {
+                                        Text(description)
+                                            .font(.callout)
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(2)
+                                            .padding(.top, 8)
+                                    }
                                 }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            
-                            // Картинка справа
-                            if let imageUrl = greenhouse.image_url, let url = URL(string: imageUrl) {
-                                AsyncImage(url: url) { image in
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                } placeholder: {
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                // Картинка справа
+                                if let imageUrl = greenhouse.image_url, let url = URL(string: imageUrl) {
+                                    AsyncImage(url: url) { image in
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    } placeholder: {
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(Color(.secondarySystemBackground))
+                                    }
+                                    .frame(width: 80, height: 80)
+                                    .background(Color(.secondarySystemBackground))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                } else {
                                     RoundedRectangle(cornerRadius: 8)
                                         .fill(Color(.secondarySystemBackground))
+                                        .frame(width: 80, height: 80)
+                                        .overlay(
+                                            Image(systemName: "building.2.fill")
+                                                .foregroundColor(.gray)
+                                                .font(.system(size: 24))
+                                        )
                                 }
-                                .frame(width: 80, height: 80)
-                                .background(Color(.secondarySystemBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                            } else {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color(.secondarySystemBackground))
-                                    .frame(width: 80, height: 80)
-                                    .overlay(
-                                        Image(systemName: "building.2.fill")
-                                            .foregroundColor(.gray)
-                                            .font(.system(size: 24))
-                                    )
                             }
-                        }
-                        .padding(8)
-                        .padding(.horizontal)
-                        
-                        // Блок "Текущие данные"
-                        VStack(alignment: .leading, spacing: 16) {
-                          //  Text("Текущие данные")
-                               // .font(.headline)
-                               // .padding(.horizontal)
+                            .padding(8)
+                            .padding(.horizontal)
                             
-                            if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
-                                // Датчик подключен (sensor_id не пустой)
-                                VStack( spacing: 16) {
-                                    // Название датчика, батарея и кнопка отвязать
-                                    HStack {
-                                        Text("Текущие данные")
-                                            .font(.title3)
-                                            .fontWeight(.semibold)
+                            // Блок "Текущие данные"
+                            VStack(alignment: .leading, spacing: 16) {
+                                if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
+                                    // Датчик подключен (sensor_id не пустой)
+                                    VStack( spacing: 16) {
+                                        // Название датчика, батарея и кнопка отвязать
+                                        HStack {
+                                            Text("Текущие данные")
+                                                .font(.title3)
+                                                .fontWeight(.semibold)
 
-                                        Spacer()
-                                        
-                                        // Батарея из BLE данных, если доступна
-                                        if let connectedDevice = bleManager.lastConnectedDevice,
-                                           let bleSensorData = bleManager.sensors[connectedDevice.id] {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "battery.100")
-                                                    .foregroundColor(batteryColor(bleSensorData.batteryPercent))
-                                                Text("\(bleSensorData.batteryPercent)%")
-                                                    .font(.caption)
-                                                    .foregroundColor(.secondary)
+                                            Spacer()
+                                            
+                                            // Батарея из BLE данных, если доступна
+                                            if let connectedDevice = bleManager.lastConnectedDevice,
+                                               let bleSensorData = bleManager.sensors[connectedDevice.id] {
+                                                HStack(spacing: 4) {
+                                                    Image(systemName: "battery.100")
+                                                        .foregroundColor(batteryColor(bleSensorData.batteryPercent))
+                                                    Text("\(bleSensorData.batteryPercent)%")
+                                                        .font(.caption)
+                                                        .foregroundColor(.secondary)
+                                                }
                                             }
+                                            
+                                            // Кнопка отвязать
+                                            Button(action: {
+                                                Task {
+                                                    await unbindSensor()
+                                                }
+                                            }) {
+                                                if isUnbinding {
+                                                    ProgressView()
+                                                        .scaleEffect(0.8)
+                                                } else {
+                                                    Text("Отключить")
+                                                        .font(.caption)
+                                                        .foregroundColor(DesignColor.mainRed.opacity(0.8))
+                                                }
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(DesignColor.mainRed.opacity(0.1))
+                                            .cornerRadius(40)
+                                            .disabled(isUnbinding)
                                         }
+                                        .padding(.horizontal)
                                         
-                                        // Кнопка отвязать
-                                        Button(action: {
-                                            Task {
-                                                await unbindSensor()
-                                            }
-                                        }) {
-                                            if isUnbinding {
-                                                ProgressView()
-                                                    .scaleEffect(0.8)
-                                            } else {
-                                                Text("Отключить")
-                                                    .font(.caption)
-                                                    .foregroundColor(DesignColor.mainRed.opacity(0.8))
-                                            }
+                                        // Две карточки: температура и влажность
+                                        HStack(spacing: 12) {
+                                            // Карточка температуры
+                                            SensorDataCard(
+                                                icon: "thermometer",
+                                                title: "Температура",
+                                                value: sensorData != nil ? String(format: "%.1f", sensorData!.temperature) : "--",
+                                                unit: "°C"
+                                            )
+                                            
+                                            // Карточка влажности
+                                            SensorDataCard(
+                                                icon: "drop.fill",
+                                                title: "Влажность",
+                                                value: sensorData != nil ? String(format: "%.0f", sensorData!.humidity) : "--",
+                                                unit: "%"
+                                            )
                                         }
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(DesignColor.mainRed.opacity(0.1))
-                                        .cornerRadius(40)
-                                        .disabled(isUnbinding)
+                                        .padding(.horizontal)
                                     }
-                                    .padding(.horizontal)
-                                    
-                                    // Две карточки: температура и влажность
-                                    HStack(spacing: 12) {
-                                        // Карточка температуры
-                                        SensorDataCard(
-                                            icon: "thermometer",
-                                            title: "Температура",
-                                            value: sensorData != nil ? String(format: "%.1f", sensorData!.temperature) : "--",
-                                            unit: "°C"
-                                        )
-                                        
-                                        // Карточка влажности
-                                        SensorDataCard(
-                                            icon: "drop.fill",
-                                            title: "Влажность",
-                                            value: sensorData != nil ? String(format: "%.0f", sensorData!.humidity) : "--",
-                                            unit: "%"
-                                        )
-                                    }
-                                    .padding(.horizontal)
-                                }
-                            } else {
-                                // Датчик не подключен
-                                VStack(spacing: 16) {
-                                    // Карточка подключения датчика
-                                    HStack(alignment: .center) {
-                                        HStack(alignment: .center, spacing: 8) {
-                                            Image(systemName: "sensor.tag.radiowaves.forward.fill")
-                                                .font(.subheadline)
-                                            Text("Подключить датчик")
-                                                .font(.subheadline)
-                                                .fontWeight(.medium)
-                                                .tracking(-0.5)
-                                                .lineSpacing(15)
-                                        }
-                                        
-                                        Spacer()
-
-                                        Button(action: {
-                                            bleManager.startScan(disableAutoConnect: true)
-                                            showDeviceList = true
-                                        }) {
-                                            if isBinding {
-                                                ProgressView()
-                                                    .scaleEffect(0.8)
-                                            } else {
-                                                Text("Подключить")
-                                                    .font(.caption)
+                                } else {
+                                    // Датчик не подключен
+                                    VStack(spacing: 16) {
+                                        // Карточка подключения датчика
+                                        HStack(alignment: .center) {
+                                            HStack(alignment: .center, spacing: 8) {
+                                                Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                                                    .font(.subheadline)
+                                                Text("Подключить датчик")
+                                                    .font(.subheadline)
                                                     .fontWeight(.medium)
                                                     .tracking(-0.5)
                                                     .lineSpacing(15)
-                                                    .foregroundColor(DesignColor.mainAccent)
                                             }
-                                        }
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(DesignColor.mainAccent.opacity(0.1))
-                                        .cornerRadius(40)
-                                        .disabled(isUnbinding)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding()
-                                    .background(Color(.systemBackground))
-                                    .cornerRadius(12)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
-                                    )
-                                    .padding(.horizontal)
-                                    
-                                    if let error = errorMessage {
-                                        Text(error)
-                                            .font(.footnote)
-                                            .foregroundColor(DesignColor.mainRed)
-                                            .multilineTextAlignment(.center)
-                                            .padding(.horizontal)
-                                    }
-                                    
-                                    if isBinding {
-                                        ProgressView("Привязка датчика...")
-                                            .padding(.horizontal)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.top, 8)
-                        
-                        // Список растений
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Растения")
-                                .font(.title2)
-                                .fontWeight(.semibold)
-                                .padding(.horizontal)
-                            
-                            if isLoadingPlants {
-                                ProgressView("Загрузка растений...")
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                            } else if plantInstances.isEmpty {
-                                VStack(spacing: 12) {
-                                    Image(systemName: "leaf.fill")
-                                        .font(.system(size: 40))
-                                        .foregroundColor(.gray)
-                                    Text("Нет растений")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 32)
-                            } else {
-                                LazyVStack(spacing: 12) {
-                                    ForEach(sortedPlantInstances) { plantInstance in
-                                        PlantCardView(
-                                            greenhouseId: greenhouseId,
-                                            plantInstance: plantInstance,
-                                            plantType: plantTypes[plantInstance.plant_type_id],
-                                            nextWatering: plantWaterings[plantInstance.id],
-                                            nextFertilizing: plantFertilizings[plantInstance.id],
-                                            onWateringComplete: {
-                                                // Обновляем данные о поливе после полива
-                                                Task {
-                                                    // Ждем немного, чтобы сервер успел пересчитать данные
-                                                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда
-                                                    
-                                                    // Обновляем данные о растениях и поливах
-                                                    await loadPlants()
-                                                    
-                                                    // Делаем еще одну попытку обновления через небольшую задержку
-                                                    // на случай, если сервер еще не успел пересчитать
-                                                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
-                                                    await loadPlants()
-                                                    
-                                                    // Обновляем данные о поливе для теплицы (для карточки в списке)
-                                                    // Загружаем greenhouse для обновления данных о поливе
-                                                    do {
-                                                        let gh = try await APIService.shared.getGreenhouse(id: greenhouseId)
-                                                        await wateringDataManager.loadNextWateringForGreenhouse(gh)
-                                                    } catch {
-                                                        print("❌ Ошибка загрузки теплицы для обновления данных о поливе: \(error)")
-                                                    }
+                                            
+                                            Spacer()
+
+                                            Button(action: {
+                                                bleManager.startScan(disableAutoConnect: true)
+                                                showDeviceList = true
+                                            }) {
+                                                if isBinding {
+                                                    ProgressView()
+                                                        .scaleEffect(0.8)
+                                                } else {
+                                                    Text("Подключить")
+                                                        .font(.caption)
+                                                        .fontWeight(.medium)
+                                                        .tracking(-0.5)
+                                                        .lineSpacing(15)
+                                                        .foregroundColor(DesignColor.mainAccent)
                                                 }
                                             }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(DesignColor.mainAccent.opacity(0.1))
+                                            .cornerRadius(40)
+                                            .disabled(isUnbinding)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding()
+                                        .background(Color(.systemBackground))
+                                        .cornerRadius(12)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
                                         )
+                                        .padding(.horizontal)
+                                        
+                                        if let error = errorMessage {
+                                            Text(error)
+                                                .font(.footnote)
+                                                .foregroundColor(DesignColor.mainRed)
+                                                .multilineTextAlignment(.center)
+                                                .padding(.horizontal)
+                                        }
+                                        
+                                        if isBinding {
+                                            ProgressView("Привязка датчика...")
+                                                .padding(.horizontal)
+                                        }
                                     }
                                 }
-                                .padding(.horizontal)
                             }
+                            .padding(.top, 8)
+                            
+                            // TabView для вкладок
+                            VStack(spacing: 0) {
+                                // Сегментированный контрол для выбора вкладки
+                                Picker("Вкладка", selection: $selectedTab) {
+                                    ForEach(DetailTab.allCases, id: \.self) { tab in
+                                        Text(tab.rawValue).tag(tab)
+                                    }
+                                }
+                                .pickerStyle(SegmentedPickerStyle())
+                                .padding(.horizontal)
+                                .padding(.top, 16)
+                                
+                                // Контент вкладок
+                                Group {
+                                    switch selectedTab {
+                                    case .plants:
+                                        plantsTabContent
+                                    case .workers:
+                                        workersTabContent
+                                    }
+                                }
+                            }
+                            .padding(.top, 8)
                         }
-                        .padding(.top, 8)
                     }
                 }
             } else {
@@ -2539,6 +2665,7 @@ struct GreenhouseDetailView: View {
         .task {
             await loadGreenhouse()
             await loadPlants()
+            await loadWorkers()
         }
         // Данные о поливах обновляются через WebSocket/другой механизм, не при открытии экрана
         .onChange(of: bleManager.lastConnectedDevice?.id) { _ in
@@ -2661,6 +2788,24 @@ struct GreenhouseDetailView: View {
             }
         } catch {
             print("❌ Ошибка загрузки растений: \(error)")
+        }
+    }
+    
+    private func loadWorkers() async {
+        isLoadingWorkers = true
+        defer { isLoadingWorkers = false }
+        
+        do {
+            let fetchedWorkers = try await APIService.shared.getGreenhouseWorkers(greenhouseId: greenhouseId)
+            await MainActor.run {
+                workers = fetchedWorkers
+            }
+            print("👷 loadWorkers: Загружено \(fetchedWorkers.count) работников")
+        } catch {
+            print("❌ Ошибка загрузки работников: \(error)")
+            await MainActor.run {
+                workers = []
+            }
         }
     }
     
