@@ -79,6 +79,16 @@ struct GreenhouseCreate: Codable {
     let sensor_ble_identifier: String?
 }
 
+struct GreenhouseUpdate: Codable {
+    let name: String?
+    let description: String?
+    let image_url: String?
+    let target_temp_min: Double?
+    let target_temp_max: Double?
+    let target_hum_min: Double?
+    let target_hum_max: Double?
+}
+
 struct PlantInstanceCreate: Codable {
     let plant_type_id: String
     let quantity: Int
@@ -181,5 +191,9 @@ struct PlantInstanceUpdate: Codable {
     let days_until: Int?
     let next_fertilizing_date: String?
     let fertilizing_days_until: Int?
+}
+
+struct BindWorkerIn: Codable {
+    let user_id: String
 }
 

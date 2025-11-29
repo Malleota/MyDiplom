@@ -39,6 +39,7 @@ from .schemas import (
     GreenhouseCreate,
     GreenhouseImageOut,
     GreenhouseOut,
+    GreenhouseUpdate,
     NextWateringOut,
     PlantInstanceCreate,
     PlantInstanceOut,
@@ -379,24 +380,30 @@ def list_greenhouses(current_user: dict = Depends(get_current_user)):
             """
             rows = conn.execute(text(sql)).mappings().all()
         else:
-            # Рабочий видит только те теплицы, к которым он привязан И где есть хотя бы один активный рабочий
+            # Рабочий видит только те теплицы, к которым он привязан
+            # Используем строгую проверку через EXISTS для гарантии правильной фильтрации
             sql = """
                 SELECT DISTINCT g.id, g.name, g.description, g.image_url, g.sensor_id,
                        g.target_temp_min, g.target_temp_max,
                        g.target_hum_min, g.target_hum_max, g.created_at
                 FROM greenhouses g
-                INNER JOIN user_greenhouses ug ON g.id = ug.greenhouse_id
-                WHERE ug.user_id = :user_id
-                AND EXISTS (
-                    SELECT 1 FROM user_greenhouses ug2
-                    INNER JOIN users u2 ON ug2.user_id = u2.id
-                    WHERE ug2.greenhouse_id = g.id
-                    AND u2.role = 'worker'
-                    AND u2.is_active = 1
+                WHERE EXISTS (
+                    SELECT 1 
+                    FROM user_greenhouses ug
+                    WHERE ug.greenhouse_id = g.id
+                    AND ug.user_id = :user_id
                 )
                 ORDER BY g.created_at ASC
             """
             rows = conn.execute(text(sql), {"user_id": current_user["id"]}).mappings().all()
+            
+            # Логируем для отладки
+            logger.info(
+                "Рабочий %s (role: %s) запросил список теплиц. Найдено: %d",
+                current_user["id"],
+                current_user["role"],
+                len(rows)
+            )
 
         result = []
         for r in rows:
@@ -699,6 +706,242 @@ def get_greenhouse(gh_id: str, current_user: dict = Depends(get_current_user)):
         gh_data["image_url"] = get_full_static_url(gh_data["image_url"])
         
         return GreenhouseOut(**gh_data)
+
+
+@router.patch("/greenhouses/{gh_id}", response_model=GreenhouseOut)
+def update_greenhouse(
+    gh_id: str,
+    payload: GreenhouseUpdate,
+    admin: dict = Depends(require_admin)
+):
+    """Обновление теплицы. Доступ: admin."""
+    with engine.begin() as conn:
+        # Проверяем существование теплицы
+        gh_exists = conn.execute(
+            text("SELECT 1 FROM greenhouses WHERE id=:id"), {"id": gh_id}
+        ).scalar()
+        if not gh_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Greenhouse not found",
+            )
+        
+        # Проверяем, что выбранное изображение существует (если указано)
+        if payload.image_url is not None:
+            image_exists = conn.execute(
+                text("SELECT 1 FROM greenhouse_images WHERE image_url=:url"),
+                {"url": payload.image_url},
+            ).scalar()
+            if not image_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Выбранное изображение не найдено в списке доступных",
+                )
+        
+        # Формируем запрос UPDATE только для переданных полей
+        update_fields = []
+        params = {"gh_id": gh_id}
+        
+        if payload.name is not None:
+            update_fields.append("name = :name")
+            params["name"] = payload.name
+        
+        if payload.description is not None:
+            update_fields.append("description = :description")
+            params["description"] = payload.description
+        
+        if payload.image_url is not None:
+            update_fields.append("image_url = :img_url")
+            params["img_url"] = payload.image_url
+        
+        if payload.target_temp_min is not None:
+            update_fields.append("target_temp_min = :tmin")
+            params["tmin"] = payload.target_temp_min
+        
+        if payload.target_temp_max is not None:
+            update_fields.append("target_temp_max = :tmax")
+            params["tmax"] = payload.target_temp_max
+        
+        if payload.target_hum_min is not None:
+            update_fields.append("target_hum_min = :hmin")
+            params["hmin"] = payload.target_hum_min
+        
+        if payload.target_hum_max is not None:
+            update_fields.append("target_hum_max = :hmax")
+            params["hmax"] = payload.target_hum_max
+        
+        # Проверяем, есть ли что-то для обновления (основные поля, работники или растения)
+        has_updates = (
+            len(update_fields) > 0
+            or payload.worker_ids is not None
+            or payload.plants is not None
+        )
+        
+        if not has_updates:
+            # Если ничего не передано для обновления, просто возвращаем текущее состояние
+            row = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT id, name, description, image_url, sensor_id,
+                               target_temp_min, target_temp_max,
+                               target_hum_min, target_hum_max, created_at
+                        FROM greenhouses WHERE id=:id
+                    """
+                    ),
+                    {"id": gh_id},
+                )
+                .mappings()
+                .first()
+            )
+            gh_data = dict(row)
+            gh_data["image_url"] = get_full_static_url(gh_data["image_url"])
+            return GreenhouseOut(**gh_data)
+        
+        # Выполняем обновление основных полей
+        if update_fields:
+            update_sql = f"""
+                UPDATE greenhouses
+                SET {', '.join(update_fields)}
+                WHERE id=:gh_id
+            """
+            conn.execute(text(update_sql), params)
+        
+        # Обновляем работников, если передан список
+        if payload.worker_ids is not None:
+            # Удаляем всех старых работников
+            conn.execute(
+                text("DELETE FROM user_greenhouses WHERE greenhouse_id=:gh_id"),
+                {"gh_id": gh_id},
+            )
+            # Добавляем новых работников
+            for worker_id in payload.worker_ids:
+                # Проверяем, что пользователь существует и является рабочим
+                user = conn.execute(
+                    text("SELECT role FROM users WHERE id=:id"),
+                    {"id": worker_id},
+                ).mappings().first()
+                if not user:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Пользователь {worker_id} не найден",
+                    )
+                if user["role"] != "worker":
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Пользователь {worker_id} должен быть рабочим",
+                    )
+                
+                # Привязываем рабочего
+                try:
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO user_greenhouses (user_id, greenhouse_id)
+                            VALUES (:user_id, :gh_id)
+                        """
+                        ),
+                        {"user_id": worker_id, "gh_id": gh_id},
+                    )
+                except Exception:
+                    pass  # Уже привязан (не должно произойти, так как мы удалили всех)
+        
+        # Добавляем новые растения, если передан список
+        if payload.plants is not None:
+            for plant in payload.plants:
+                # Проверяем, что тип растения существует и получаем интервалы
+                pt_data = conn.execute(
+                    text("SELECT watering_interval_days, fertilizing_interval_days FROM plant_types WHERE id=:id"),
+                    {"id": plant.plant_type_id},
+                ).mappings().first()
+                if not pt_data:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Тип растения {plant.plant_type_id} не найден",
+                    )
+                
+                pi_id = new_id()
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO plant_instances (id, greenhouse_id, plant_type_id, quantity, note)
+                        VALUES (:id, :gh, :pt, :q, :note)
+                    """
+                    ),
+                    {
+                        "id": pi_id,
+                        "gh": gh_id,
+                        "pt": plant.plant_type_id,
+                        "q": plant.quantity,
+                        "note": plant.note,
+                    },
+                )
+                
+                # Если у растения есть интервал полива, создаем событие полива на сегодня
+                if pt_data["watering_interval_days"] is not None:
+                    watering_event_id = new_id()
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO watering_events
+                              (id, greenhouse_id, user_id, plant_instance_id, type, comment)
+                            VALUES
+                              (:id, :gh, :uid, :pid, 'watering', :comment)
+                        """
+                        ),
+                        {
+                            "id": watering_event_id,
+                            "gh": gh_id,
+                            "uid": admin["id"],
+                            "pid": pi_id,
+                            "comment": "Автоматически при добавлении растения",
+                        },
+                    )
+                
+                # Если у растения есть интервал удобрения, создаем событие удобрения на сегодня
+                if pt_data["fertilizing_interval_days"] is not None:
+                    fertilizing_event_id = new_id()
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO watering_events
+                              (id, greenhouse_id, user_id, plant_instance_id, type, comment)
+                            VALUES
+                              (:id, :gh, :uid, :pid, 'fertilizing', :comment)
+                        """
+                        ),
+                        {
+                            "id": fertilizing_event_id,
+                            "gh": gh_id,
+                            "uid": admin["id"],
+                            "pid": pi_id,
+                            "comment": "Автоматически при добавлении растения",
+                        },
+                    )
+        
+        # Получаем обновленные данные
+        row = (
+            conn.execute(
+                text(
+                    """
+                    SELECT id, name, description, image_url, sensor_id,
+                           target_temp_min, target_temp_max,
+                           target_hum_min, target_hum_max, created_at
+                    FROM greenhouses WHERE id=:id
+                """
+                ),
+                {"id": gh_id},
+            )
+            .mappings()
+            .first()
+        )
+        
+        # Формируем полный URL для изображения
+        gh_data = dict(row)
+        gh_data["image_url"] = get_full_static_url(gh_data["image_url"])
+    
+    logger.info("Теплица %s обновлена администратором %s", gh_id, admin["id"])
+    return GreenhouseOut(**gh_data)
 
 
 @router.delete("/greenhouses/{gh_id}", status_code=204)

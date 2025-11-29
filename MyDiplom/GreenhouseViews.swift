@@ -18,9 +18,15 @@ struct GreenhouseListView: View {
     @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     @StateObject private var viewModel = GreenhouseListViewModel()
     @State private var showCreateGreenhouse = false
+    @State private var showEditGreenhouse = false
+    @State private var selectedGreenhouseForEdit: GreenhouseOut? = nil
     
     private var shouldShowCreateButton: Bool {
         AuthManager.shared.currentUser?.role != "worker"
+    }
+    
+    private var isAdmin: Bool {
+        AuthManager.shared.currentUser?.role == "admin"
     }
     
     var body: some View {
@@ -58,6 +64,16 @@ struct GreenhouseListView: View {
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .id("greenhouse_\(greenhouse.id)") // Стабильный идентификатор для предотвращения пересоздания
+                                .contextMenu {
+                                    if isAdmin {
+                                        Button(action: {
+                                            selectedGreenhouseForEdit = greenhouse
+                                            showEditGreenhouse = true
+                                        }) {
+                                            Label("Редактировать", systemImage: "pencil")
+                                        }
+                                    }
+                                }
                             }
                         }
                         .padding()
@@ -78,6 +94,16 @@ struct GreenhouseListView: View {
             }
             .sheet(isPresented: $showCreateGreenhouse) {
                 CreateGreenhouseView()
+            }
+            .sheet(isPresented: $showEditGreenhouse) {
+                if let greenhouse = selectedGreenhouseForEdit {
+                    EditGreenhouseView(greenhouse: greenhouse)
+                }
+            }
+            .onChange(of: showEditGreenhouse) { isPresented in
+                if !isPresented {
+                    selectedGreenhouseForEdit = nil
+                }
             }
             .task {
                 await viewModel.loadGreenhouses(bleManager: bleManager)
@@ -875,6 +901,755 @@ class CreateGreenhouseViewModel: ObservableObject {
     }
 }
 
+// MARK: - Edit Greenhouse View
+
+struct EditGreenhouseView: View {
+    @Environment(\.dismiss) private var dismiss
+    let greenhouse: GreenhouseOut
+    @StateObject private var viewModel: EditGreenhouseViewModel
+    @State private var showUnsavedChangesAlert = false
+    
+    init(greenhouse: GreenhouseOut) {
+        self.greenhouse = greenhouse
+        _viewModel = StateObject(wrappedValue: EditGreenhouseViewModel(greenhouse: greenhouse))
+    }
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Название
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Название")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                        
+                        SystemInputField(
+                            placeholder: "Введите название теплицы",
+                            text: $viewModel.name
+                        )
+                    }
+                    
+                    // Описание
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Описание")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                        
+                        ZStack(alignment: .topLeading) {
+                            RoundedRectangle(cornerRadius: 40)
+                                .fill(DesignColor.Background.primary)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 40)
+                                        .stroke(DesignColor.Fills.tertiar, lineWidth: 1)
+                                )
+                                .frame(height: 120)
+                            
+                            if #available(iOS 16.0, *) {
+                                TextEditor(text: $viewModel.description)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 16)
+                                    .background(Color.clear)
+                                    .scrollContentBackground(.hidden)
+                            } else {
+                                TextEditor(text: $viewModel.description)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 16)
+                                    .background(Color.clear)
+                            }
+                        }
+                    }
+                    
+                    // Выбор картинки
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Изображение")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                        
+                        if viewModel.isLoadingImages {
+                            ProgressView("Загрузка изображений...")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                        } else {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(viewModel.availableImages) { image in
+                                        Button(action: {
+                                            viewModel.selectedImageId = image.id
+                                        }) {
+                                            Group {
+                                                if let imageUrl = APIService.shared.getFullImageURL(image.image_url) {
+                                                    AsyncImage(url: imageUrl) { phase in
+                                                        switch phase {
+                                                        case .empty:
+                                                            ProgressView()
+                                                                .frame(width: 100, height: 100)
+                                                        case .success(let img):
+                                                            img
+                                                                .resizable()
+                                                                .aspectRatio(contentMode: .fill)
+                                                        case .failure(let error):
+                                                            RoundedRectangle(cornerRadius: 12)
+                                                                .fill(Color.gray.opacity(0.2))
+                                                                .frame(width: 100, height: 100)
+                                                                .overlay(
+                                                                    Image(systemName: "photo")
+                                                                        .foregroundColor(.gray)
+                                                                )
+                                                        @unknown default:
+                                                            RoundedRectangle(cornerRadius: 12)
+                                                                .fill(Color.gray.opacity(0.2))
+                                                                .frame(width: 100, height: 100)
+                                                        }
+                                                    }
+                                                    .frame(width: 100, height: 100)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                                } else {
+                                                    RoundedRectangle(cornerRadius: 12)
+                                                        .fill(Color.gray.opacity(0.2))
+                                                        .frame(width: 100, height: 100)
+                                                        .overlay(
+                                                            Image(systemName: "photo")
+                                                                .foregroundColor(.gray)
+                                                        )
+                                                }
+                                            }
+                                        }
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(viewModel.selectedImageId == image.id ? DesignColor.mainAccent : Color.clear, lineWidth: 2)
+                                        )
+                                    }
+                                }
+                                .padding(.horizontal)
+                            }
+                        }
+                    }
+                    
+                    // Целевые параметры температуры
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Целевая температура")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                        
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Минимум")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                SystemInputField(
+                                    placeholder: "°C",
+                                    text: $viewModel.targetTempMin
+                                )
+                                .keyboardType(.decimalPad)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Максимум")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                SystemInputField(
+                                    placeholder: "°C",
+                                    text: $viewModel.targetTempMax
+                                )
+                                .keyboardType(.decimalPad)
+                            }
+                        }
+                    }
+                    
+                    // Целевые параметры влажности
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Целевая влажность")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                        
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Минимум")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                SystemInputField(
+                                    placeholder: "%",
+                                    text: $viewModel.targetHumMin
+                                )
+                                .keyboardType(.decimalPad)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Максимум")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                SystemInputField(
+                                    placeholder: "%",
+                                    text: $viewModel.targetHumMax
+                                )
+                                .keyboardType(.decimalPad)
+                            }
+                        }
+                    }
+                    
+                    // Растения и работники с сегментированным контролом
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Сегментированный контрол
+                        Picker("", selection: $viewModel.selectedSegment) {
+                            ForEach(EditContentSegment.allCases, id: \.self) { segment in
+                                Text(segment.rawValue).tag(segment)
+                            }
+                        }
+                        .pickerStyle(SegmentedPickerStyle())
+                        
+                        // Контент в зависимости от выбранного сегмента
+                        if viewModel.selectedSegment == .plants {
+                            // Растения
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Spacer()
+                                    
+                                    Button(action: {
+                                        viewModel.addPlant()
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "plus.circle.fill")
+                                            Text("Добавить")
+                                        }
+                                        .font(.subheadline)
+                                        .foregroundColor(DesignColor.mainAccent)
+                                    }
+                                }
+                                
+                                // Существующие растения
+                                if viewModel.isLoadingPlants {
+                                    ProgressView("Загрузка растений...")
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                } else if !viewModel.plantInstances.isEmpty {
+                                    ForEach(viewModel.plantInstances) { plantInstance in
+                                        ExistingPlantRow(
+                                            plantInstance: plantInstance,
+                                            availablePlantTypes: viewModel.availablePlantTypes,
+                                            onDelete: {
+                                                viewModel.deletePlant(plantInstanceId: plantInstance.id)
+                                            },
+                                            onQuantityChanged: { newQuantity in
+                                                viewModel.updatePlantQuantity(plantInstanceId: plantInstance.id, quantity: newQuantity)
+                                            }
+                                        )
+                                    }
+                                }
+                                
+                                // Новые растения
+                                if !viewModel.newPlants.isEmpty {
+                                    ForEach(Array(viewModel.newPlants.enumerated()), id: \.element.id) { index, plant in
+                                        PlantSelectionRow(
+                                            plant: plant,
+                                            availablePlantTypes: viewModel.availablePlantTypes,
+                                            onRemove: {
+                                                viewModel.removeNewPlant(at: index)
+                                            },
+                                            onPlantTypeChanged: { plantTypeId in
+                                                viewModel.updateNewPlantType(at: index, plantTypeId: plantTypeId)
+                                            },
+                                            onQuantityChanged: { quantity in
+                                                viewModel.updateNewPlantQuantity(at: index, quantity: quantity)
+                                            }
+                                        )
+                                    }
+                                }
+                                
+                                if viewModel.plantInstances.isEmpty && viewModel.newPlants.isEmpty && !viewModel.isLoadingPlants {
+                                    Text("Растения не добавлены")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                        .padding()
+                                }
+                            }
+                        } else {
+                            // Рабочие
+                            VStack(alignment: .leading, spacing: 12) {
+                                if viewModel.isLoadingWorkers {
+                                    ProgressView("Загрузка работников...")
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                } else if viewModel.availableWorkers.isEmpty {
+                                    Text("Нет доступных работников")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                        .padding()
+                                } else {
+                                    ScrollView {
+                                        VStack(spacing: 12) {
+                                            ForEach(viewModel.availableWorkers) { worker in
+                                                WorkerSelectionRow(
+                                                    worker: worker,
+                                                    isSelected: viewModel.isWorkerSelected(worker.id),
+                                                    onToggle: {
+                                                        viewModel.toggleWorker(worker.id)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    .frame(maxHeight: 300)
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Сообщение об ошибке
+                    if let error = viewModel.errorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(DesignColor.mainRed)
+                            .padding(.horizontal)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Редактирование теплицы")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") {
+                        if viewModel.hasChanges {
+                            showUnsavedChangesAlert = true
+                        } else {
+                            dismiss()
+                        }
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Сохранить") {
+                        Task {
+                            await viewModel.saveGreenhouse()
+                            if viewModel.isSuccess {
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(viewModel.isSaving || !viewModel.isValid)
+                }
+            }
+            .alert("Несохраненные изменения", isPresented: $showUnsavedChangesAlert) {
+                Button("Отмена", role: .cancel) {
+                    // Закрываем алерт, продолжаем редактирование
+                }
+                Button("Выйти", role: .destructive) {
+                    // Изменения не сохраняются, экран закрывается
+                    dismiss()
+                }
+            } message: {
+                Text("Не сохраненные изменения будут удалены")
+            }
+            .interactiveDismissDisabled(viewModel.hasChanges)
+            .task {
+                await viewModel.loadData()
+            }
+        }
+    }
+}
+
+// MARK: - Edit Content Segment
+
+enum EditContentSegment: String, CaseIterable {
+    case plants = "Растения"
+    case workers = "Рабочие"
+}
+
+// MARK: - Edit Greenhouse ViewModel
+
+@MainActor
+class EditGreenhouseViewModel: ObservableObject {
+    let greenhouse: GreenhouseOut
+    
+    @Published var name: String = ""
+    @Published var description: String = ""
+    @Published var selectedImageId: String? = nil
+    @Published var targetTempMin: String = ""
+    @Published var targetTempMax: String = ""
+    @Published var targetHumMin: String = ""
+    @Published var targetHumMax: String = ""
+    @Published var availableImages: [GreenhouseImageOut] = []
+    @Published var isLoadingImages = false
+    @Published var isSaving = false
+    @Published var errorMessage: String? = nil
+    @Published var isSuccess = false
+    
+    // Растения
+    @Published var plantInstances: [PlantInstanceOut] = []
+    @Published var newPlants: [PlantSelection] = [] // Новые растения для добавления
+    @Published var availablePlantTypes: [PlantTypeOut] = []
+    @Published var isLoadingPlantTypes = false
+    @Published var isLoadingPlants = false
+    
+    // Работники
+    @Published var workers: [UserOut] = []
+    @Published var availableWorkers: [UserOut] = []
+    @Published var isLoadingWorkers = false
+    @Published var selectedSegment: EditContentSegment = .plants
+    
+    // Исходные значения для отслеживания изменений
+    private var originalName: String = ""
+    private var originalDescription: String = ""
+    private var originalImageId: String? = nil
+    private var originalTargetTempMin: String = ""
+    private var originalTargetTempMax: String = ""
+    private var originalTargetHumMin: String = ""
+    private var originalTargetHumMax: String = ""
+    private var originalPlantInstanceIds: Set<String> = []
+    private var originalPlantQuantities: [String: Int] = [:] // ID растения -> количество
+    private var originalWorkerIds: Set<String> = []
+    
+    var isValid: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+    
+    var hasChanges: Bool {
+        name.trimmingCharacters(in: .whitespaces) != originalName ||
+        description.trimmingCharacters(in: .whitespaces) != originalDescription ||
+        selectedImageId != originalImageId ||
+        targetTempMin != originalTargetTempMin ||
+        targetTempMax != originalTargetTempMax ||
+        targetHumMin != originalTargetHumMin ||
+        targetHumMax != originalTargetHumMax ||
+        Set(plantInstances.map { $0.id }) != originalPlantInstanceIds ||
+        plantInstances.contains(where: { plant in
+            originalPlantQuantities[plant.id] != plant.quantity
+        }) ||
+        Set(workers.map { $0.id }) != originalWorkerIds ||
+        !newPlants.isEmpty
+    }
+    
+    init(greenhouse: GreenhouseOut) {
+        self.greenhouse = greenhouse
+        
+        // Заполняем поля исходными значениями
+        self.name = greenhouse.name
+        self.description = greenhouse.description ?? ""
+        self.targetTempMin = greenhouse.target_temp_min != nil ? String(format: "%.1f", greenhouse.target_temp_min!) : ""
+        self.targetTempMax = greenhouse.target_temp_max != nil ? String(format: "%.1f", greenhouse.target_temp_max!) : ""
+        self.targetHumMin = greenhouse.target_hum_min != nil ? String(format: "%.1f", greenhouse.target_hum_min!) : ""
+        self.targetHumMax = greenhouse.target_hum_max != nil ? String(format: "%.1f", greenhouse.target_hum_max!) : ""
+        
+        // Сохраняем исходные значения для отслеживания изменений
+        self.originalName = greenhouse.name
+        self.originalDescription = greenhouse.description ?? ""
+        self.originalTargetTempMin = self.targetTempMin
+        self.originalTargetTempMax = self.targetTempMax
+        self.originalTargetHumMin = self.targetHumMin
+        self.originalTargetHumMax = self.targetHumMax
+        
+        // Находим выбранное изображение по image_url
+        if let imageUrl = greenhouse.image_url {
+            // Будет установлено после загрузки изображений
+        }
+    }
+    
+    func loadData() async {
+        await loadImages()
+        await loadPlantTypes()
+        await loadPlants()
+        await loadWorkers()
+        await loadAvailableWorkers()
+    }
+    
+    func loadPlants() async {
+        isLoadingPlants = true
+        defer { isLoadingPlants = false }
+        
+        do {
+            plantInstances = try await APIService.shared.getPlantInstances(greenhouseId: greenhouse.id)
+            originalPlantInstanceIds = Set(plantInstances.map { $0.id })
+            originalPlantQuantities = Dictionary(uniqueKeysWithValues: plantInstances.map { ($0.id, $0.quantity) })
+            print("🌱 loadPlants: Загружено \(plantInstances.count) растений")
+        } catch {
+            print("❌ Ошибка загрузки растений: \(error)")
+        }
+    }
+    
+    func loadPlantTypes() async {
+        isLoadingPlantTypes = true
+        defer { isLoadingPlantTypes = false }
+        
+        do {
+            availablePlantTypes = try await APIService.shared.getPlantTypes()
+        } catch {
+            print("❌ Ошибка загрузки типов растений: \(error)")
+        }
+    }
+    
+    func loadWorkers() async {
+        do {
+            workers = try await APIService.shared.getGreenhouseWorkers(greenhouseId: greenhouse.id)
+            originalWorkerIds = Set(workers.map { $0.id })
+            print("👷 loadWorkers: Загружено \(workers.count) работников")
+        } catch {
+            print("❌ Ошибка загрузки работников: \(error)")
+            // Не критично, просто логируем
+        }
+    }
+    
+    func loadAvailableWorkers() async {
+        isLoadingWorkers = true
+        defer { isLoadingWorkers = false }
+        
+        do {
+            availableWorkers = try await APIService.shared.getWorkers()
+            print("👷 loadAvailableWorkers: Загружено \(availableWorkers.count) доступных работников")
+        } catch {
+            print("❌ Ошибка загрузки доступных работников: \(error)")
+        }
+    }
+    
+    func addPlant() {
+        newPlants.append(PlantSelection(plantTypeId: "", quantity: 1))
+    }
+    
+    func removeNewPlant(at index: Int) {
+        guard index < newPlants.count else { return }
+        newPlants.remove(at: index)
+    }
+    
+    func updateNewPlantType(at index: Int, plantTypeId: String) {
+        guard index < newPlants.count else { return }
+        guard !plantTypeId.isEmpty else { return }
+        
+        // Проверяем, есть ли уже такое растение в теплице
+        if let existingPlant = plantInstances.first(where: { $0.plant_type_id == plantTypeId }) {
+            // Растение уже есть - увеличиваем количество на 1 и удаляем новый элемент из списка
+            let newQuantity = existingPlant.quantity + 1
+            updatePlantQuantity(plantInstanceId: existingPlant.id, quantity: newQuantity)
+            removeNewPlant(at: index)
+            print("✅ Количество существующего растения увеличено на 1: \(existingPlant.id)")
+        } else {
+            // Растения нет - просто обновляем тип в новом элементе
+            var updatedPlants = newPlants
+            updatedPlants[index].plantTypeId = plantTypeId
+            newPlants = updatedPlants
+        }
+    }
+    
+    func updateNewPlantQuantity(at index: Int, quantity: Int) {
+        guard index < newPlants.count else { return }
+        var updatedPlants = newPlants
+        updatedPlants[index].quantity = quantity
+        newPlants = updatedPlants
+    }
+    
+    func deletePlant(plantInstanceId: String) {
+        plantInstances.removeAll { $0.id == plantInstanceId }
+    }
+    
+    func updatePlantQuantity(plantInstanceId: String, quantity: Int) {
+        guard let index = plantInstances.firstIndex(where: { $0.id == plantInstanceId }) else { return }
+        var updatedPlant = plantInstances[index]
+        // Создаем новый экземпляр с обновленным количеством
+        // Поскольку PlantInstanceOut - это struct с let свойствами, нам нужно обновить массив
+        plantInstances[index] = PlantInstanceOut(
+            id: updatedPlant.id,
+            greenhouse_id: updatedPlant.greenhouse_id,
+            plant_type_id: updatedPlant.plant_type_id,
+            quantity: quantity,
+            note: updatedPlant.note
+        )
+    }
+    
+    func toggleWorker(_ workerId: String) {
+        if let index = workers.firstIndex(where: { $0.id == workerId }) {
+            // Удаляем работника
+            workers.remove(at: index)
+        } else if let worker = availableWorkers.first(where: { $0.id == workerId }) {
+            // Добавляем работника
+            workers.append(worker)
+        }
+    }
+    
+    func isWorkerSelected(_ workerId: String) -> Bool {
+        workers.contains { $0.id == workerId }
+    }
+    
+    func loadImages() async {
+        isLoadingImages = true
+        defer { isLoadingImages = false }
+        
+        do {
+            availableImages = try await APIService.shared.getGreenhouseImages()
+            print("📸 loadImages: Загружено \(availableImages.count) изображений")
+            
+            // Находим и выбираем текущее изображение теплицы
+            if let imageUrl = greenhouse.image_url {
+                // Ищем изображение по image_url (может быть полным или относительным URL)
+                if let currentImage = availableImages.first(where: { img in
+                    img.image_url == imageUrl || 
+                    imageUrl.contains(img.image_url) ||
+                    img.image_url.contains(imageUrl)
+                }) {
+                    selectedImageId = currentImage.id
+                    originalImageId = currentImage.id
+                    print("📸 loadImages: Найдено текущее изображение с ID: \(currentImage.id)")
+                } else if !availableImages.isEmpty && selectedImageId == nil {
+                    // Если не нашли, предвыбираем первую картинку
+                    selectedImageId = availableImages.first?.id
+                    originalImageId = availableImages.first?.id
+                    print("📸 loadImages: Предвыбрано изображение с ID: \(selectedImageId ?? "nil")")
+                }
+            } else if !availableImages.isEmpty && selectedImageId == nil {
+                // Если у теплицы нет изображения, предвыбираем первую картинку
+                selectedImageId = availableImages.first?.id
+                originalImageId = availableImages.first?.id
+                print("📸 loadImages: Предвыбрано изображение с ID: \(selectedImageId ?? "nil")")
+            }
+        } catch {
+            print("❌ Ошибка загрузки изображений: \(error)")
+            if let apiError = error as? APIError {
+                errorMessage = apiError.detail
+            } else {
+                errorMessage = "Ошибка загрузки изображений: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    func saveGreenhouse() async {
+        isSaving = true
+        errorMessage = nil
+        isSuccess = false
+        defer { isSaving = false }
+        
+        do {
+            // 1. Обновляем основные данные теплицы
+            var imageUrl: String? = nil
+            if let selectedImageId = selectedImageId,
+               let selectedImage = availableImages.first(where: { $0.id == selectedImageId }) {
+                imageUrl = selectedImage.image_url
+            }
+            
+            let tempMin = Double(targetTempMin.trimmingCharacters(in: .whitespaces))
+            let tempMax = Double(targetTempMax.trimmingCharacters(in: .whitespaces))
+            let humMin = Double(targetHumMin.trimmingCharacters(in: .whitespaces))
+            let humMax = Double(targetHumMax.trimmingCharacters(in: .whitespaces))
+            
+            let greenhouseUpdate = GreenhouseUpdate(
+                name: name.trimmingCharacters(in: .whitespaces).isEmpty ? nil : name.trimmingCharacters(in: .whitespaces),
+                description: description.trimmingCharacters(in: .whitespaces).isEmpty ? nil : description.trimmingCharacters(in: .whitespaces),
+                image_url: imageUrl,
+                target_temp_min: tempMin,
+                target_temp_max: tempMax,
+                target_hum_min: humMin,
+                target_hum_max: humMax
+            )
+            
+            _ = try await APIService.shared.updateGreenhouse(id: greenhouse.id, greenhouseUpdate)
+            print("✅ Основные данные теплицы обновлены")
+            
+            // 2. Добавляем новые растения или увеличиваем количество существующих
+            for newPlant in newPlants {
+                guard !newPlant.plantTypeId.isEmpty else { continue }
+                
+                // Проверяем, есть ли уже такое растение в теплице
+                if let existingPlant = plantInstances.first(where: { $0.plant_type_id == newPlant.plantTypeId }) {
+                    // Растение уже есть - увеличиваем количество
+                    let newQuantity = existingPlant.quantity + newPlant.quantity
+                    let update = PlantInstanceUpdate(
+                        plant_type_id: nil,
+                        quantity: newQuantity,
+                        note: nil,
+                        next_watering_date: nil,
+                        days_until: nil,
+                        next_fertilizing_date: nil,
+                        fertilizing_days_until: nil
+                    )
+                    _ = try await APIService.shared.updatePlantInstance(
+                        greenhouseId: greenhouse.id,
+                        plantInstanceId: existingPlant.id,
+                        update: update
+                    )
+                    // Обновляем локальное состояние
+                    updatePlantQuantity(plantInstanceId: existingPlant.id, quantity: newQuantity)
+                    print("✅ Количество растения увеличено: \(existingPlant.id)")
+                } else {
+                    // Растения нет - добавляем новое
+                    let plantCreate = PlantInstanceCreate(
+                        plant_type_id: newPlant.plantTypeId,
+                        quantity: newPlant.quantity,
+                        note: nil
+                    )
+                    _ = try await APIService.shared.addPlantInstance(greenhouseId: greenhouse.id, plant: plantCreate)
+                    print("✅ Растение добавлено")
+                }
+            }
+            
+            // 3. Обновляем количество существующих растений
+            for plantInstance in plantInstances {
+                if let originalQuantity = originalPlantQuantities[plantInstance.id],
+                   originalQuantity != plantInstance.quantity {
+                    // Количество изменилось, обновляем
+                    let update = PlantInstanceUpdate(
+                        plant_type_id: nil,
+                        quantity: plantInstance.quantity,
+                        note: nil,
+                        next_watering_date: nil,
+                        days_until: nil,
+                        next_fertilizing_date: nil,
+                        fertilizing_days_until: nil
+                    )
+                    _ = try await APIService.shared.updatePlantInstance(
+                        greenhouseId: greenhouse.id,
+                        plantInstanceId: plantInstance.id,
+                        update: update
+                    )
+                    print("✅ Количество растения обновлено: \(plantInstance.id)")
+                }
+            }
+            
+            // 4. Удаляем удаленные растения
+            let currentPlantIds = Set(plantInstances.map { $0.id })
+            let deletedPlantIds = originalPlantInstanceIds.subtracting(currentPlantIds)
+            for deletedId in deletedPlantIds {
+                try await APIService.shared.deletePlantInstance(greenhouseId: greenhouse.id, plantInstanceId: deletedId)
+                print("✅ Растение удалено")
+            }
+            
+            // 5. Обновляем работников
+            let currentWorkerIds = Set(workers.map { $0.id })
+            let addedWorkerIds = currentWorkerIds.subtracting(originalWorkerIds)
+            let removedWorkerIds = originalWorkerIds.subtracting(currentWorkerIds)
+            
+            for addedId in addedWorkerIds {
+                try await APIService.shared.bindWorkerToGreenhouse(greenhouseId: greenhouse.id, userId: addedId)
+                print("✅ Работник привязан")
+            }
+            
+            for removedId in removedWorkerIds {
+                try await APIService.shared.unbindWorkerFromGreenhouse(greenhouseId: greenhouse.id, userId: removedId)
+                print("✅ Работник отвязан")
+            }
+            
+            print("✅ Теплица успешно обновлена")
+            isSuccess = true
+            
+            // Отправляем уведомление об обновлении списка теплиц
+            NotificationCenter.default.post(name: NSNotification.Name("GreenhouseUpdated"), object: nil)
+        } catch {
+            print("❌ Ошибка обновления теплицы: \(error)")
+            if let apiError = error as? APIError {
+                errorMessage = apiError.detail
+            } else {
+                errorMessage = "Ошибка обновления теплицы: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
 // MARK: - Plant Selection Model
 
 struct PlantSelection: Identifiable {
@@ -1060,6 +1835,146 @@ struct PlantSelectionRow: View {
     
     private var selectedPlantType: PlantTypeOut? {
         availablePlantTypes.first(where: { $0.id == plant.plantTypeId })
+    }
+}
+
+// MARK: - Existing Plant Row
+
+struct ExistingPlantRow: View {
+    let plantInstance: PlantInstanceOut
+    let availablePlantTypes: [PlantTypeOut]
+    let onDelete: () -> Void
+    let onQuantityChanged: (Int) -> Void
+    
+    @State private var quantityText: String
+    
+    var plantType: PlantTypeOut? {
+        availablePlantTypes.first { $0.id == plantInstance.plant_type_id }
+    }
+    
+    init(plantInstance: PlantInstanceOut, availablePlantTypes: [PlantTypeOut], onDelete: @escaping () -> Void, onQuantityChanged: @escaping (Int) -> Void) {
+        self.plantInstance = plantInstance
+        self.availablePlantTypes = availablePlantTypes
+        self.onDelete = onDelete
+        self.onQuantityChanged = onQuantityChanged
+        _quantityText = State(initialValue: String(plantInstance.quantity))
+    }
+    
+    // Обновляем quantityText при изменении plantInstance
+    var currentQuantity: Int {
+        plantInstance.quantity
+    }
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Изображение растения
+            if let plantType = plantType, let imageUrl = plantType.image_url, let url = URL(string: imageUrl) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .empty:
+                        ProgressView()
+                            .frame(width: 60, height: 60)
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    case .failure:
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(width: 60, height: 60)
+                            .overlay(
+                                Image(systemName: "leaf.fill")
+                                    .foregroundColor(.gray)
+                                    .font(.system(size: 24))
+                            )
+                    @unknown default:
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(width: 60, height: 60)
+                    }
+                }
+                .frame(width: 60, height: 60)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            } else {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 60, height: 60)
+                    .overlay(
+                        Image(systemName: "leaf.fill")
+                            .foregroundColor(.gray)
+                            .font(.system(size: 24))
+                    )
+            }
+            
+            // Информация о растении
+            VStack(alignment: .leading, spacing: 8) {
+                Text(plantType?.name ?? "Неизвестное растение")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                // Количество с кнопками - и +
+                HStack {
+                    Text("Количество")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    Spacer()
+                    
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            let newQuantity = max(1, currentQuantity - 1)
+                            quantityText = String(newQuantity)
+                            onQuantityChanged(newQuantity)
+                        }) {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundColor(DesignColor.mainAccent)
+                        }
+                        
+                        TextField("", text: $quantityText)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 60)
+                            .onChange(of: quantityText) { newValue in
+                                if let quantity = Int(newValue), quantity > 0 {
+                                    onQuantityChanged(quantity)
+                                }
+                            }
+                        
+                        Button(action: {
+                            let newQuantity = currentQuantity + 1
+                            quantityText = String(newQuantity)
+                            onQuantityChanged(newQuantity)
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(DesignColor.mainAccent)
+                        }
+                    }
+                }
+            }
+            
+            Spacer()
+            
+            // Кнопка удаления
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .foregroundColor(DesignColor.mainRed)
+            }
+        }
+        .padding()
+        .background(DesignColor.Background.primary)
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(DesignColor.Fills.tertiar, lineWidth: 1)
+        )
+        .onAppear {
+            quantityText = String(currentQuantity)
+        }
+        .onChange(of: currentQuantity) { newValue in
+            if quantityText != String(newValue) {
+                quantityText = String(newValue)
+            }
+        }
     }
 }
 
