@@ -19,6 +19,10 @@ struct GreenhouseListView: View {
     @StateObject private var viewModel = GreenhouseListViewModel()
     @State private var showCreateGreenhouse = false
     
+    private var shouldShowCreateButton: Bool {
+        AuthManager.shared.currentUser?.role != "worker"
+    }
+    
     var body: some View {
         NavigationView {
             ZStack {
@@ -32,9 +36,11 @@ struct GreenhouseListView: View {
                         Text("Нет теплиц")
                             .font(.title2)
                             .fontWeight(.semibold)
-                        Text("Нажмите + чтобы создать первую теплицу")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                        if AuthManager.shared.currentUser?.role != "worker" {
+                            Text("Нажмите + чтобы создать первую теплицу")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 } else {
                     ScrollView {
@@ -61,10 +67,12 @@ struct GreenhouseListView: View {
             .navigationTitle("Теплицы")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        showCreateGreenhouse = true
-                    }) {
-                        Image(systemName: "plus")
+                    if shouldShowCreateButton {
+                        Button(action: {
+                            showCreateGreenhouse = true
+                        }) {
+                            Image(systemName: "plus")
+                        }
                     }
                 }
             }
