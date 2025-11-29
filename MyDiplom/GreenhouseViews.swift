@@ -2255,11 +2255,126 @@ struct WorkerRow: View {
     }
 }
 
+// MARK: - Report Row View
+
+struct ReportRowView: View {
+    let event: WaterEventOut
+    let userName: String
+    let plantTypeName: String
+    
+    private var actionType: String {
+        event.type == "watering" ? "Полив" : "Удобрение"
+    }
+    
+    private var dateString: String {
+        guard let date = parseDate(event.created_at) else {
+            return event.created_at
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd.MM.yyyy"
+        return formatter.string(from: date)
+    }
+    
+    private var timeString: String {
+        guard let date = parseDate(event.created_at) else {
+            return ""
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+    
+    private func parseDate(_ dateString: String) -> Date? {
+        // Пробуем ISO8601 форматы
+        var isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = isoFormatter.date(from: dateString) { return date }
+        
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        if let date = isoFormatter.date(from: dateString) { return date }
+        
+        // Исправляем неполный формат "2025-11-25T2"
+        if dateString.contains("T") {
+            let parts = dateString.split(separator: "T")
+            guard parts.count == 2 else { return nil }
+            
+            let datePart = String(parts[0])
+            var timePart = String(parts[1]).replacingOccurrences(of: "Z", with: "")
+            
+            // Удаляем дробные секунды, если есть
+            if let dotIndex = timePart.firstIndex(of: ".") {
+                timePart = String(timePart[..<dotIndex])
+            }
+            
+            // Исправляем неполное время
+            if !timePart.contains(":") {
+                timePart = timePart.count == 1 ? "0\(timePart):00:00" : "\(timePart):00:00"
+            } else {
+                let components = timePart.split(separator: ":")
+                if components.count == 2 {
+                    timePart = "\(timePart):00"
+                }
+            }
+            
+            // Парсим исправленную строку через DateFormatter
+            let fixed = "\(datePart)T\(timePart)"
+            let parser = DateFormatter()
+            parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+            parser.locale = Locale(identifier: "en_US_POSIX")
+            return parser.date(from: fixed)
+        }
+        
+        return nil
+    }
+    
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(actionType)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dateString)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                
+                Text(timeString)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            Text(userName)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            Text(plantTypeName)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .background(Color(.systemBackground))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(Color(.separator)),
+            alignment: .bottom
+        )
+    }
+}
+
 // MARK: - Greenhouse Detail View
 
 enum DetailTab: String, CaseIterable {
     case plants = "Растения"
     case workers = "Работники"
+    case reports = "Отчеты"
 }
 
 struct GreenhouseDetailView: View {
@@ -2284,6 +2399,23 @@ struct GreenhouseDetailView: View {
     @State private var selectedTab: DetailTab = .plants
     @State private var workers: [UserOut] = []
     @State private var isLoadingWorkers = false
+    @State private var wateringEvents: [WaterEventOut] = []
+    @State private var fertilizingEvents: [WaterEventOut] = []
+    @State private var isLoadingReports = false
+    
+    // Проверяем, является ли пользователь рабочим
+    private var isWorker: Bool {
+        AuthManager.shared.currentUser?.role == "worker"
+    }
+    
+    // Доступные вкладки в зависимости от роли пользователя
+    private var availableTabs: [DetailTab] {
+        if isWorker {
+            return [.plants, .workers]
+        } else {
+            return DetailTab.allCases
+        }
+    }
     
     // Контент вкладки "Растения"
     private var plantsTabContent: some View {
@@ -2373,6 +2505,109 @@ struct GreenhouseDetailView: View {
                 .padding(.top, 16)
             }
         }
+    }
+    
+    // Контент вкладки "Отчеты"
+    private var reportsTabContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if isLoadingReports {
+                ProgressView("Загрузка отчетов...")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            } else {
+                let allEvents = (wateringEvents + fertilizingEvents).sorted { event1, event2 in
+                    // Сортируем по дате создания (новые сверху)
+                    return event1.created_at > event2.created_at
+                }
+                
+                if allEvents.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "doc.text.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.gray)
+                        Text("Нет данных")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            // Заголовок таблицы
+                            HStack(spacing: 0) {
+                                Text("Тип действия")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                Text("Дата и время")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                Text("Кто выполнил")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                Text("Тип растения")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 12)
+                            .background(Color(.secondarySystemBackground))
+                            
+                            // Строки таблицы
+                            ForEach(allEvents) { event in
+                                ReportRowView(
+                                    event: event,
+                                    userName: getUserName(userId: event.user_id),
+                                    plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id)
+                                )
+                            }
+                        }
+                    }
+                    .padding(.top, 16)
+                }
+            }
+        }
+    }
+    
+    // Вспомогательные функции для получения данных
+    private func getUserName(userId: String) -> String {
+        // Ищем в списке работников
+        if let worker = workers.first(where: { $0.id == userId }) {
+            return worker.name
+        }
+        // Если это текущий пользователь
+        if let currentUser = AuthManager.shared.currentUser, currentUser.id == userId {
+            return currentUser.name
+        }
+        // Если не найдено, возвращаем "Неизвестно"
+        return "Неизвестно"
+    }
+    
+    private func getPlantTypeName(plantInstanceId: String?) -> String {
+        guard let plantInstanceId = plantInstanceId else {
+            return "—"
+        }
+        
+        // Находим растение по ID
+        if let plantInstance = plantInstances.first(where: { $0.id == plantInstanceId }) {
+            // Находим тип растения
+            if let plantType = plantTypes[plantInstance.plant_type_id] {
+                return plantType.name
+            }
+        }
+        
+        return "—"
     }
     
     // Отсортированный список растений по поливу
@@ -2626,7 +2861,7 @@ struct GreenhouseDetailView: View {
                             VStack(spacing: 0) {
                                 // Сегментированный контрол для выбора вкладки
                                 Picker("Вкладка", selection: $selectedTab) {
-                                    ForEach(DetailTab.allCases, id: \.self) { tab in
+                                    ForEach(availableTabs, id: \.self) { tab in
                                         Text(tab.rawValue).tag(tab)
                                     }
                                 }
@@ -2641,6 +2876,8 @@ struct GreenhouseDetailView: View {
                                         plantsTabContent
                                     case .workers:
                                         workersTabContent
+                                    case .reports:
+                                        reportsTabContent
                                     }
                                 }
                             }
@@ -2666,6 +2903,17 @@ struct GreenhouseDetailView: View {
             await loadGreenhouse()
             await loadPlants()
             await loadWorkers()
+            // Если пользователь рабочий и выбрана вкладка отчетов, переключаем на растения
+            if isWorker && selectedTab == .reports {
+                selectedTab = .plants
+            }
+        }
+        .onChange(of: selectedTab) { newTab in
+            if newTab == .reports {
+                Task {
+                    await loadReports()
+                }
+            }
         }
         // Данные о поливах обновляются через WebSocket/другой механизм, не при открытии экрана
         .onChange(of: bleManager.lastConnectedDevice?.id) { _ in
@@ -2805,6 +3053,31 @@ struct GreenhouseDetailView: View {
             print("❌ Ошибка загрузки работников: \(error)")
             await MainActor.run {
                 workers = []
+            }
+        }
+    }
+    
+    private func loadReports() async {
+        isLoadingReports = true
+        defer { isLoadingReports = false }
+        
+        do {
+            // Загружаем события полива
+            let watering = try await APIService.shared.getWateringEvents(greenhouseId: greenhouseId)
+            
+            // Загружаем события удобрения
+            let fertilizing = try await APIService.shared.getFertilizingEvents(greenhouseId: greenhouseId)
+            
+            await MainActor.run {
+                wateringEvents = watering
+                fertilizingEvents = fertilizing
+            }
+            print("📊 loadReports: Загружено \(watering.count) событий полива и \(fertilizing.count) событий удобрения")
+        } catch {
+            print("❌ Ошибка загрузки отчетов: \(error)")
+            await MainActor.run {
+                wateringEvents = []
+                fertilizingEvents = []
             }
         }
     }
