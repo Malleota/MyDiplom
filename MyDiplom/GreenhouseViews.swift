@@ -303,6 +303,77 @@ struct GreenhouseSimpleCardView: View {
     }
 }
 
+// MARK: - Expandable Description View
+struct ExpandableDescriptionView: View {
+    let description: String
+    @State private var isExpanded = false
+    private let maxLines = 2
+    
+    var body: some View {
+        if shouldShowButton {
+            if isExpanded {
+                // Развернутое состояние
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(description)
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                    
+                    Button(action: {
+                        withAnimation {
+                            isExpanded.toggle()
+                        }
+                    }) {
+                        Text("Свернуть")
+                            .font(.callout)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 4)
+                }
+            } else {
+                // Свернутое состояние - кнопка на последней строке после многоточия
+                // Используем HStack с выравниванием по верху, чтобы кнопка была на последней строке
+                HStack(alignment: .lastTextBaseline, spacing: 4) {
+                    Text(description)
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(maxLines)
+                    
+                    // Кнопка после текста
+                    Button(action: {
+                        withAnimation {
+                            isExpanded.toggle()
+                        }
+                    }) {
+                        Text("Еще")
+                            .font(.callout)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        } else {
+            // Если кнопка не нужна, просто показываем текст
+            Text(description)
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.leading)
+        }
+    }
+    
+    private var shouldShowButton: Bool {
+        // Проверяем количество строк в тексте (по переносам строк)
+        let explicitLineCount = description.components(separatedBy: .newlines).count
+        
+        // Приблизительная оценка: если текст длинный (больше ~120 символов для 3 строк по ~40 символов)
+        // или явно больше 3 строк, показываем кнопку
+        let estimatedCharsPerLine = 40
+        let estimatedLines = description.count / estimatedCharsPerLine + (description.count % estimatedCharsPerLine > 0 ? 1 : 0)
+        
+        return explicitLineCount > maxLines || estimatedLines > maxLines || description.count > 120
+    }
+}
+
 // MARK: - Greenhouse Card View
 
 struct GreenhouseCardView: View {
@@ -2788,11 +2859,8 @@ struct GreenhouseDetailView: View {
                                         .font(.title)
                                         .fontWeight(.bold)
                                     
-                                    if let description = greenhouse.description {
-                                        Text(description)
-                                            .font(.callout)
-                                            .foregroundColor(.secondary)
-                                            .lineLimit(2)
+                                    if let description = greenhouse.description, !description.isEmpty {
+                                        ExpandableDescriptionView(description: description)
                                             .padding(.top, 8)
                                     }
                                 }

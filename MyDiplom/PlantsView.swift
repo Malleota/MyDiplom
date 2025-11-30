@@ -248,11 +248,7 @@ struct PlantDetailView: View {
                             .multilineTextAlignment(.leading)
                         
                         if let description = plantType.description, !description.isEmpty {
-                            Text(description)
-                                .font(.callout)
-                                .foregroundColor(.secondary)
-                                .lineLimit(12)
-                                .multilineTextAlignment(.leading)
+                            ExpandableDescriptionView(description: description)
                                 .padding(.top, 8)
                         }
                     }
