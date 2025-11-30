@@ -401,7 +401,7 @@ struct GreenhouseCardView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
                         // Датчик подключен - показываем данные или "--"
-                        HStack(spacing: 4) {
+                        HStack(spacing: 8) {
                             Image(systemName: "sensor")
                                 .foregroundColor(DesignColor.myDarkBlue.opacity(0.8))
                                 .font(.subheadline)
@@ -415,6 +415,10 @@ struct GreenhouseCardView: View {
                                     .foregroundColor(DesignColor.myDarkBlue.opacity(0.8))
                             }
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(DesignColor.myDarkBlue.opacity(0.1))
+                        .cornerRadius(40)
                     }
                     
                     // Время до следующего полива
@@ -2614,37 +2618,78 @@ struct GreenhouseDetailView: View {
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(sortedPlantInstances) { plantInstance in
-                        PlantCardView(
-                            greenhouseId: greenhouseId,
-                            plantInstance: plantInstance,
-                            plantType: plantTypes[plantInstance.plant_type_id],
-                            nextWatering: plantWaterings[plantInstance.id],
-                            nextFertilizing: plantFertilizings[plantInstance.id],
-                            onWateringComplete: {
-                                // Обновляем данные о поливе после полива
-                                Task {
-                                    // Ждем немного, чтобы сервер успел пересчитать данные
-                                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда
-                                    
-                                    // Обновляем данные о растениях и поливах
-                                    await loadPlants()
-                                    
-                                    // Делаем еще одну попытку обновления через небольшую задержку
-                                    // на случай, если сервер еще не успел пересчитать
-                                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
-                                    await loadPlants()
-                                    
-                                    // Обновляем данные о поливе для теплицы (для карточки в списке)
-                                    // Загружаем greenhouse для обновления данных о поливе
-                                    do {
-                                        let gh = try await APIService.shared.getGreenhouse(id: greenhouseId)
-                                        await wateringDataManager.loadNextWateringForGreenhouse(gh)
-                                    } catch {
-                                        print("❌ Ошибка загрузки теплицы для обновления данных о поливе: \(error)")
+                        if let plantType = plantTypes[plantInstance.plant_type_id] {
+                            NavigationLink(destination: PlantDetailView(plantType: plantType)
+                                .environmentObject(bleManager)
+                                .environmentObject(sensorDataManager)
+                                .environmentObject(wateringDataManager)
+                                .environmentObject(fertilizingDataManager)) {
+                                PlantCardView(
+                                    greenhouseId: greenhouseId,
+                                    plantInstance: plantInstance,
+                                    plantType: plantType,
+                                    nextWatering: plantWaterings[plantInstance.id],
+                                    nextFertilizing: plantFertilizings[plantInstance.id],
+                                    onWateringComplete: {
+                                        // Обновляем данные о поливе после полива
+                                        Task {
+                                            // Ждем немного, чтобы сервер успел пересчитать данные
+                                            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда
+                                            
+                                            // Обновляем данные о растениях и поливах
+                                            await loadPlants()
+                                            
+                                            // Делаем еще одну попытку обновления через небольшую задержку
+                                            // на случай, если сервер еще не успел пересчитать
+                                            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+                                            await loadPlants()
+                                            
+                                            // Обновляем данные о поливе для теплицы (для карточки в списке)
+                                            // Загружаем greenhouse для обновления данных о поливе
+                                            do {
+                                                let gh = try await APIService.shared.getGreenhouse(id: greenhouseId)
+                                                await wateringDataManager.loadNextWateringForGreenhouse(gh)
+                                            } catch {
+                                                print("❌ Ошибка загрузки теплицы для обновления данных о поливе: \(error)")
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        } else {
+                            PlantCardView(
+                                greenhouseId: greenhouseId,
+                                plantInstance: plantInstance,
+                                plantType: nil,
+                                nextWatering: plantWaterings[plantInstance.id],
+                                nextFertilizing: plantFertilizings[plantInstance.id],
+                                onWateringComplete: {
+                                    // Обновляем данные о поливе после полива
+                                    Task {
+                                        // Ждем немного, чтобы сервер успел пересчитать данные
+                                        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда
+                                        
+                                        // Обновляем данные о растениях и поливах
+                                        await loadPlants()
+                                        
+                                        // Делаем еще одну попытку обновления через небольшую задержку
+                                        // на случай, если сервер еще не успел пересчитать
+                                        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+                                        await loadPlants()
+                                        
+                                        // Обновляем данные о поливе для теплицы (для карточки в списке)
+                                        // Загружаем greenhouse для обновления данных о поливе
+                                        do {
+                                            let gh = try await APIService.shared.getGreenhouse(id: greenhouseId)
+                                            await wateringDataManager.loadNextWateringForGreenhouse(gh)
+                                        } catch {
+                                            print("❌ Ошибка загрузки теплицы для обновления данных о поливе: \(error)")
+                                        }
                                     }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
                 .padding(.horizontal)
