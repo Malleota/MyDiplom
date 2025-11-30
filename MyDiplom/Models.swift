@@ -43,6 +43,10 @@ struct UserOut: Codable, Identifiable {
     let created_at: String
 }
 
+struct UserRoleUpdate: Codable {
+    let role: String  // "worker" или "admin"
+}
+
 // MARK: - Avatar Models
 
 struct AvatarOut: Codable, Identifiable {

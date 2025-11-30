@@ -99,6 +99,9 @@ struct WorkersView: View {
             .refreshable {
                 await loadUsersAsync()
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("UserRoleUpdated"))) { _ in
+                loadUsers()
+            }
         }
     }
     

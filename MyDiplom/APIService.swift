@@ -1058,6 +1058,63 @@ class APIService {
         }
     }
     
+    /// Обновить роль пользователя (доступно только для админа)
+    func updateUserRole(userId: String, role: String) async throws -> UserOut {
+        guard let token = AuthManager.shared.accessToken else {
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        // Проверяем, является ли пользователь админом
+        guard let currentUser = AuthManager.shared.currentUser, currentUser.role == "admin" else {
+            print("⚠️ updateUserRole: Доступ запрещен - требуется роль admin")
+            throw APIError(detail: "Доступ запрещен. Требуется роль администратора")
+        }
+        
+        let url = URL(string: "\(baseURL)/users/\(userId)/role")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let payload = UserRoleUpdate(role: role)
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(payload)
+        
+        print("👥 updateUserRole: Обновление роли пользователя \(userId) на \(role)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("👥 updateUserRole: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let updatedUser = try decoder.decode(UserOut.self, from: data)
+            print("✅ updateUserRole: Роль пользователя успешно обновлена")
+            return updatedUser
+        } else if httpResponse.statusCode == 401 {
+            print("❌ updateUserRole: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ updateUserRole: Ошибка 403 - Доступ запрещен (требуется роль admin)")
+            throw APIError(detail: "Доступ запрещен. Требуется роль администратора")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ updateUserRole: Ошибка 404 - Пользователь не найден")
+            throw APIError(detail: "Пользователь не найден")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ updateUserRole: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            print("❌ updateUserRole: Ошибка сервера (код \(httpResponse.statusCode))")
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
+    
     /// Получить список всех рабочих (пользователей с ролью worker)
     /// Использует endpoint /users (доступен только для админа) и фильтрует по роли worker
     func getWorkers() async throws -> [UserOut] {
