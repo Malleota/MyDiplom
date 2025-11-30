@@ -216,11 +216,8 @@ struct UserRow: View {
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.gray.opacity(0.2), lineWidth: 1.0)
-        )
-        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        .cardBorder()
+        .cardShadow()
     }
 }
 

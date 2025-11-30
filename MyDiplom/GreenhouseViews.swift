@@ -502,7 +502,8 @@ struct GreenhouseCardView: View {
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+        .cardBorder()
+        .cardShadow()
     }
 }
 
@@ -1976,6 +1977,7 @@ struct PlantSelectionRow: View {
         .padding()
         .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
+        .cardBorder()
         .onAppear {
             quantityText = String(plant.quantity)
         }
@@ -2123,10 +2125,7 @@ struct ExistingPlantRow: View {
         .padding()
         .background(DesignColor.Background.primary)
         .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(DesignColor.Fills.tertiar, lineWidth: 1)
-        )
+        .cardBorder()
         .onAppear {
             quantityText = String(currentQuantity)
         }
@@ -2249,7 +2248,7 @@ struct PlantPickerView: View {
                                 RoundedRectangle(cornerRadius: 12)
                                     .stroke(selectedPlantTypeId == plantType.id ? DesignColor.mainAccent : Color.clear, lineWidth: 2)
                             )
-                            .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+                            .cardShadow()
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
@@ -2343,7 +2342,7 @@ struct WorkerSelectionRow: View {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(isSelected ? DesignColor.mainAccent : Color.clear, lineWidth: 2)
             )
-            .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+            .cardShadow()
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -2409,11 +2408,8 @@ struct WorkerRow: View {
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
-        )
-        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+        .cardBorder()
+        .cardShadow()
     }
 }
 
@@ -3924,7 +3920,8 @@ struct PlantCardView: View {
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+        .cardBorder()
+        .cardShadow()
         .contextMenu {
             if isAdmin {
                 Button(action: {

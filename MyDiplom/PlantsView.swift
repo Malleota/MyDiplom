@@ -69,11 +69,11 @@ struct PlantsView: View {
                                 .buttonStyle(PlainButtonStyle())
                                 .contextMenu {
                                     if !isWorker {
-                                        Button(action: {
-                                            selectedPlantForEdit = plantType
-                                            showEditPlant = true
-                                        }) {
-                                            Label("Редактировать", systemImage: "pencil")
+                                    Button(action: {
+                                        selectedPlantForEdit = plantType
+                                        showEditPlant = true
+                                    }) {
+                                        Label("Редактировать", systemImage: "pencil")
                                         }
                                     }
                                 }
@@ -88,11 +88,11 @@ struct PlantsView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if !isWorker {
-                        Button {
-                            showCreatePlant = true
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 18, weight: .semibold))
+                    Button {
+                        showCreatePlant = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 18, weight: .semibold))
                         }
                     }
                 }
@@ -225,11 +225,8 @@ struct PlantRow: View {
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.gray.opacity(0.2), lineWidth: 1.0)
-        )
-        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        .cardBorder()
+        .cardShadow()
     }
 }
 
@@ -413,11 +410,8 @@ struct PlantDetailView: View {
                                     .padding()
                                     .background(Color(.systemBackground))
                                     .cornerRadius(12)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(Color.gray.opacity(0.2), lineWidth: 1.0)
-                                    )
-                                    .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+                                    .cardBorder()
+                                    .cardShadow()
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
