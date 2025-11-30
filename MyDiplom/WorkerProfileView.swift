@@ -21,6 +21,13 @@ struct WorkerProfileView: View {
     @State private var isLoadingReports = false
     @State private var plantInstances: [PlantInstanceOut] = []
     @State private var plantTypes: [String: PlantTypeOut] = [:] // plant_type_id -> PlantTypeOut
+    @State private var showAddGreenhouseSheet = false
+    @State private var allGreenhouses: [GreenhouseOut] = []
+    @State private var isLoadingAllGreenhouses = false
+    @State private var isRemovingGreenhouse: Set<String> = [] // greenhouseId -> isRemoving
+    @State private var isAddingGreenhouse = false
+    @State private var greenhouseToRemove: GreenhouseOut?
+    @State private var showRemoveAlert = false
     
     var isAdmin: Bool {
         user.role == "admin"
@@ -28,6 +35,11 @@ struct WorkerProfileView: View {
     
     var roleText: String {
         user.role == "admin" ? "Администратор" : "Рабочий"
+    }
+    
+    // Проверяем, является ли текущий пользователь админом (для управления теплицами)
+    var currentUserIsAdmin: Bool {
+        AuthManager.shared.currentUser?.role == "admin"
     }
     
     var body: some View {
@@ -83,10 +95,35 @@ struct WorkerProfileView: View {
                 // Список теплиц (только для рабочих)
                 if !isAdmin {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Теплицы")
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Теплицы")
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                                .padding(.horizontal)
+                            
+                            // Кнопка добавления теплицы (только для админов)
+                            if currentUserIsAdmin {
+                                HStack {
+                                    Spacer()
+                                    
+                                    Button(action: {
+                                        Task {
+                                            await loadAllGreenhousesForSelection()
+                                        }
+                                        showAddGreenhouseSheet = true
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "plus.circle.fill")
+                                            Text("Добавить")
+                                        }
+                                        .font(.subheadline)
+                                        .foregroundColor(DesignColor.mainAccent)
+                                    }
+                                    .disabled(isLoadingAllGreenhouses)
+                                }
+                                .padding(.horizontal)
+                            }
+                        }
                         
                         if isLoading {
                             ProgressView("Загрузка теплиц...")
@@ -137,6 +174,17 @@ struct WorkerProfileView: View {
                                         )
                                     }
                                     .buttonStyle(PlainButtonStyle())
+                                    .contextMenu {
+                                        // Контекстное меню (только для админов)
+                                        if currentUserIsAdmin {
+                                            Button(role: .destructive) {
+                                                greenhouseToRemove = greenhouse
+                                                showRemoveAlert = true
+                                            } label: {
+                                                Label("Удалить", systemImage: "trash")
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             .padding(.horizontal)
@@ -252,6 +300,35 @@ struct WorkerProfileView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SensorDataUpdated"))) { _ in
             // Обновляем UI при обновлении данных датчика
+        }
+        .sheet(isPresented: $showAddGreenhouseSheet) {
+            AddGreenhouseToUserView(
+                user: user,
+                allGreenhouses: allGreenhouses,
+                currentGreenhouses: greenhouses,
+                isLoading: isLoadingAllGreenhouses,
+                onAdd: { greenhouseId in
+                    Task {
+                        await addGreenhouse(greenhouseId: greenhouseId)
+                    }
+                }
+            )
+        }
+        .alert("Отвязать работника от теплицы?", isPresented: $showRemoveAlert) {
+            Button("Отвязать", role: .destructive) {
+                if let greenhouse = greenhouseToRemove {
+                    Task {
+                        await removeGreenhouse(greenhouseId: greenhouse.id)
+                    }
+                }
+            }
+            Button("Отмена", role: .cancel) {
+                greenhouseToRemove = nil
+            }
+        } message: {
+            if let greenhouse = greenhouseToRemove {
+                Text("Вы уверены, что хотите отвязать работника от теплицы \"\(greenhouse.name)\"?")
+            }
         }
     }
     
@@ -446,6 +523,93 @@ struct WorkerProfileView: View {
         
         return "—"
     }
+    
+    // Загрузка всех теплиц для выбора (только для админов)
+    private func loadAllGreenhousesForSelection() async {
+        await MainActor.run {
+            isLoadingAllGreenhouses = true
+        }
+        
+        do {
+            let allGreenhousesList = try await APIService.shared.getGreenhouses()
+            await MainActor.run {
+                allGreenhouses = allGreenhousesList
+                isLoadingAllGreenhouses = false
+            }
+        } catch {
+            print("❌ Ошибка загрузки всех теплиц: \(error)")
+            await MainActor.run {
+                isLoadingAllGreenhouses = false
+            }
+        }
+    }
+    
+    // Добавить пользователя в теплицу
+    private func addGreenhouse(greenhouseId: String) async {
+        await MainActor.run {
+            isAddingGreenhouse = true
+        }
+        
+        do {
+            try await APIService.shared.bindWorkerToGreenhouse(greenhouseId: greenhouseId, userId: user.id)
+            print("✅ Пользователь \(user.name) успешно добавлен в теплицу")
+            
+            // Обновляем список теплиц
+            if isAdmin {
+                await loadAllGreenhouses()
+            } else {
+                await loadGreenhousesAsync()
+            }
+            
+            await MainActor.run {
+                isAddingGreenhouse = false
+                showAddGreenhouseSheet = false
+            }
+        } catch {
+            print("❌ Ошибка добавления пользователя в теплицу: \(error)")
+            await MainActor.run {
+                isAddingGreenhouse = false
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.detail
+                } else {
+                    errorMessage = "Ошибка добавления: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    // Удалить пользователя из теплицы
+    private func removeGreenhouse(greenhouseId: String) async {
+        await MainActor.run {
+            isRemovingGreenhouse.insert(greenhouseId)
+        }
+        
+        do {
+            try await APIService.shared.unbindWorkerFromGreenhouse(greenhouseId: greenhouseId, userId: user.id)
+            print("✅ Пользователь \(user.name) успешно удален из теплицы")
+            
+            // Обновляем список теплиц
+            if isAdmin {
+                await loadAllGreenhouses()
+            } else {
+                await loadGreenhousesAsync()
+            }
+            
+            await MainActor.run {
+                isRemovingGreenhouse.remove(greenhouseId)
+            }
+        } catch {
+            print("❌ Ошибка удаления пользователя из теплицы: \(error)")
+            await MainActor.run {
+                isRemovingGreenhouse.remove(greenhouseId)
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.detail
+                } else {
+                    errorMessage = "Ошибка удаления: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Worker Report Row View
@@ -558,6 +722,132 @@ struct WorkerReportRowView: View {
                 .foregroundColor(Color(.separator)),
             alignment: .bottom
         )
+    }
+}
+
+// MARK: - Add Greenhouse To User View
+struct AddGreenhouseToUserView: View {
+    let user: UserOut
+    let allGreenhouses: [GreenhouseOut]
+    let currentGreenhouses: [GreenhouseOut]
+    let isLoading: Bool
+    let onAdd: (String) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedGreenhouseId: String?
+    
+    // Доступные для добавления теплицы (те, которые еще не привязаны)
+    var availableGreenhouses: [GreenhouseOut] {
+        let currentIds = Set(currentGreenhouses.map { $0.id })
+        return allGreenhouses.filter { !currentIds.contains($0.id) }
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack {
+                if isLoading {
+                    ProgressView("Загрузка теплиц...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if availableGreenhouses.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.green)
+                        Text("Все теплицы уже привязаны")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(availableGreenhouses) { greenhouse in
+                            Button(action: {
+                                selectedGreenhouseId = greenhouse.id
+                            }) {
+                                HStack(spacing: 12) {
+                                    // Изображение теплицы
+                                    if let imageUrl = greenhouse.image_url, let url = URL(string: imageUrl) {
+                                        AsyncImage(url: url) { phase in
+                                            switch phase {
+                                            case .empty:
+                                                ProgressView()
+                                                    .frame(width: 50, height: 50)
+                                            case .success(let image):
+                                                image
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: .fill)
+                                            case .failure:
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .fill(Color.gray.opacity(0.3))
+                                                    .frame(width: 50, height: 50)
+                                                    .overlay(
+                                                        Image(systemName: "building.2.fill")
+                                                            .foregroundColor(.gray)
+                                                            .font(.system(size: 20))
+                                                    )
+                                            @unknown default:
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .fill(Color.gray.opacity(0.3))
+                                                    .frame(width: 50, height: 50)
+                                            }
+                                        }
+                                        .frame(width: 50, height: 50)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    } else {
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(Color.gray.opacity(0.3))
+                                            .frame(width: 50, height: 50)
+                                            .overlay(
+                                                Image(systemName: "building.2.fill")
+                                                    .foregroundColor(.gray)
+                                                    .font(.system(size: 20))
+                                            )
+                                    }
+                                    
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(greenhouse.name)
+                                            .font(.headline)
+                                            .foregroundColor(.primary)
+                                        
+                                        if let description = greenhouse.description, !description.isEmpty {
+                                            Text(description)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(2)
+                                        }
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    if selectedGreenhouseId == greenhouse.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.blue)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Добавить теплицу")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Добавить") {
+                        if let greenhouseId = selectedGreenhouseId {
+                            onAdd(greenhouseId)
+                        }
+                    }
+                    .disabled(selectedGreenhouseId == nil || isLoading)
+                }
+            }
+        }
     }
 }
 
