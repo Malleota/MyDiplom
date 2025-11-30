@@ -202,30 +202,6 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Plants View (Справочник)
-struct PlantsView: View {
-    var body: some View {
-        NavigationView {
-            VStack {
-                Spacer()
-                Image(systemName: "leaf.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(.green)
-                Text("Справочник растений")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .padding(.top, 16)
-                Text("Здесь будут все растения")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 8)
-                Spacer()
-            }
-            .navigationTitle("Справочник")
-        }
-    }
-}
-
 // MARK: - Greenhouses View (Теплицы)
 struct GreenhousesView: View {
     @EnvironmentObject var bleManager: BLEManager
@@ -284,4 +260,5 @@ struct DeviceListView: View {
         }
     }
 }
+
 
