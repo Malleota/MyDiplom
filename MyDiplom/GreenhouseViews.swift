@@ -2419,6 +2419,12 @@ struct ReportRowView: View {
     let event: WaterEventOut
     let userName: String
     let plantTypeName: String
+    let userId: String
+    let user: UserOut?
+    @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     
     private var actionType: String {
         event.type == "watering" ? "Полив" : "Удобрение"
@@ -2505,10 +2511,25 @@ struct ReportRowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             
-            Text(userName)
-                .font(.subheadline)
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Имя пользователя с навигацией к профилю
+            if let user = user {
+                NavigationLink(destination: WorkerProfileView(user: user)
+                    .environmentObject(bleManager)
+                    .environmentObject(sensorDataManager)
+                    .environmentObject(wateringDataManager)
+                    .environmentObject(fertilizingDataManager)) {
+                    Text(userName)
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(PlainButtonStyle())
+            } else {
+                Text(userName)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             
             Text(plantTypeName)
                 .font(.subheadline)
@@ -2783,8 +2804,14 @@ struct GreenhouseDetailView: View {
                                 ReportRowView(
                                     event: event,
                                     userName: getUserName(userId: event.user_id),
-                                    plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id)
+                                    plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id),
+                                    userId: event.user_id,
+                                    user: getUser(userId: event.user_id)
                                 )
+                                .environmentObject(bleManager)
+                                .environmentObject(sensorDataManager)
+                                .environmentObject(wateringDataManager)
+                                .environmentObject(fertilizingDataManager)
                             }
                         }
                     }
@@ -2806,6 +2833,19 @@ struct GreenhouseDetailView: View {
         }
         // Если не найдено, возвращаем "Неизвестно"
         return "Неизвестно"
+    }
+    
+    private func getUser(userId: String) -> UserOut? {
+        // Ищем в списке работников
+        if let worker = workers.first(where: { $0.id == userId }) {
+            return worker
+        }
+        // Если это текущий пользователь
+        if let currentUser = AuthManager.shared.currentUser, currentUser.id == userId {
+            return currentUser
+        }
+        // Если не найдено, возвращаем nil
+        return nil
     }
     
     private func getPlantTypeName(plantInstanceId: String?) -> String {
