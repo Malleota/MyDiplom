@@ -208,6 +208,101 @@ struct GreenhouseListView: View {
     }
 }
 
+// MARK: - Greenhouse Image View (Reusable Component)
+
+struct GreenhouseImageView: View {
+    let imageUrl: String?
+    let size: CGFloat
+    let cornerRadius: CGFloat
+    
+    init(imageUrl: String?, size: CGFloat = 64, cornerRadius: CGFloat = 10) {
+        self.imageUrl = imageUrl
+        self.size = size
+        self.cornerRadius = cornerRadius
+    }
+    
+    var body: some View {
+        if let imageUrl = imageUrl, let url = URL(string: imageUrl) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .empty:
+                    ProgressView()
+                        .frame(width: size, height: size)
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                case .failure:
+                    placeholderView
+                @unknown default:
+                    placeholderView
+                }
+            }
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        } else {
+            placeholderView
+        }
+    }
+    
+    private var placeholderView: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(Color.gray.opacity(0.3))
+            .frame(width: size, height: size)
+            .overlay(
+                Image(systemName: "building.2.fill")
+                    .foregroundColor(.gray)
+                    .font(.system(size: size * 0.4))
+            )
+    }
+}
+
+// MARK: - Greenhouse Simple Card View (For Selection Lists)
+
+struct GreenhouseSimpleCardView: View {
+    let greenhouse: GreenhouseOut
+    let isSelected: Bool
+    let imageSize: CGFloat
+    let showDescription: Bool
+    
+    init(greenhouse: GreenhouseOut, isSelected: Bool = false, imageSize: CGFloat = 50, showDescription: Bool = true) {
+        self.greenhouse = greenhouse
+        self.isSelected = isSelected
+        self.imageSize = imageSize
+        self.showDescription = showDescription
+    }
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            GreenhouseImageView(
+                imageUrl: greenhouse.image_url,
+                size: imageSize,
+                cornerRadius: 8
+            )
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(greenhouse.name)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                if showDescription, let description = greenhouse.description, !description.isEmpty {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            
+            Spacer()
+            
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.blue)
+            }
+        }
+    }
+}
+
 // MARK: - Greenhouse Card View
 
 struct GreenhouseCardView: View {
@@ -219,26 +314,11 @@ struct GreenhouseCardView: View {
     var body: some View {
         HStack(spacing: 16) {
             // Изображение теплицы
-            if let imageUrl = greenhouse.image_url, let url = URL(string: imageUrl) {
-                AsyncImage(url: url) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.gray.opacity(0.3))
-                }
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-            } else {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 64, height: 64)
-                    .overlay(
-                        Image(systemName: "building.2.fill")
-                            .foregroundColor(.gray)
-                    )
-            }
+            GreenhouseImageView(
+                imageUrl: greenhouse.image_url,
+                size: 64,
+                cornerRadius: 10
+            )
             
             // Информация о теплице
             VStack(alignment: .leading, spacing: 8) {
@@ -250,20 +330,19 @@ struct GreenhouseCardView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
                         // Датчик подключен - показываем данные или "--"
-                        HStack(spacing: 12) {
-                            Label(
-                                sensorData != nil ? String(format: "%.1f°C", sensorData!.temperature) : "--°C",
-                                systemImage: "thermometer"
-                            )
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            
-                            Label(
-                                sensorData != nil ? String(format: "%.0f%%", sensorData!.humidity) : "--%",
-                                systemImage: "humidity"
-                            )
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                        HStack(spacing: 4) {
+                            Image(systemName: "sensor")
+                                .foregroundColor(DesignColor.myDarkBlue.opacity(0.8))
+                                .font(.subheadline)
+                            HStack(spacing: 8) {
+                                Text(sensorData != nil ? String(format: "%.1f°C", sensorData!.temperature) : "--°C")
+                                    .font(.subheadline)
+                                    .foregroundColor(DesignColor.myDarkBlue.opacity(0.8))
+                                
+                                Text(sensorData != nil ? String(format: "%.0f%%", sensorData!.humidity) : "--%")
+                                    .font(.subheadline)
+                                    .foregroundColor(DesignColor.myDarkBlue.opacity(0.8))
+                            }
                         }
                     }
                     
@@ -272,32 +351,32 @@ struct GreenhouseCardView: View {
                         if let daysUntil = nextWatering.days_until {
                             // Есть интервал, показываем дни до следующего полива
                             if nextWatering.is_overdue {
-                                Label("Просрочено на \(abs(daysUntil)) дн.", systemImage: "drop.fill")
+                                Label("Просрочено на \(abs(daysUntil)) \(daysWordForm(abs(daysUntil)))", systemImage: "drop")
                                     .font(.subheadline)
-                                    .foregroundColor(.red)
+                                    .foregroundColor(DesignColor.mainRed)
                             } else if daysUntil == 0 {
-                                Label("Сегодня", systemImage: "drop.fill")
+                                Label("Сегодня", systemImage: "drop")
                                     .font(.subheadline)
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(DesignColor.myYellow)
                             } else {
-                                Label("Через \(daysUntil) дн.", systemImage: "drop.fill")
+                                Label("\(daysUntil) \(daysWordForm(daysUntil))", systemImage: "drop")
                                     .font(.subheadline)
-                                    .foregroundColor(DesignColor.mainAccent)
+                                    .foregroundColor(.secondary)
                             }
                         } else if let lastWateringDate = nextWatering.next_watering_date {
                             // Нет интервала, но есть дата последнего полива
                             // Показываем дату последнего полива
-                            Label("Последний: \(formatDate(lastWateringDate))", systemImage: "drop.fill")
+                            Label("Последний: \(formatDate(lastWateringDate))", systemImage: "drop")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         } else {
                             // Нет данных о поливе
-                            Label("Не запланирован", systemImage: "drop.fill")
+                            Label("Не запланирован", systemImage: "drop")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
                     } else {
-                        Label("Загрузка...", systemImage: "drop.fill")
+                        Label("Загрузка...", systemImage: "drop")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -307,32 +386,32 @@ struct GreenhouseCardView: View {
                         if let daysUntil = nextFertilizing.days_until {
                             // Есть интервал, показываем дни до следующего удобрения
                             if nextFertilizing.is_overdue {
-                                Label("Просрочено на \(abs(daysUntil)) дн.", systemImage: "leaf.fill")
+                                Label("Просрочено на \(abs(daysUntil)) \(daysWordForm(abs(daysUntil)))", systemImage: "pills")
                                     .font(.subheadline)
-                                    .foregroundColor(.red)
+                                    .foregroundColor(DesignColor.mainRed)
                             } else if daysUntil == 0 {
-                                Label("Сегодня", systemImage: "leaf.fill")
+                                Label("Сегодня", systemImage: "pills")
                                     .font(.subheadline)
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(DesignColor.myYellow)
                             } else {
-                                Label("Через \(daysUntil) дн.", systemImage: "leaf.fill")
+                                Label("\(daysUntil) \(daysWordForm(daysUntil))", systemImage: "pills")
                                     .font(.subheadline)
-                                    .foregroundColor(.green)
+                                    .foregroundColor(.secondary)
                             }
                         } else if let lastFertilizingDate = nextFertilizing.next_watering_date {
                             // Нет интервала, но есть дата последнего удобрения
                             // Показываем дату последнего удобрения
-                            Label("Последнее: \(formatDate(lastFertilizingDate))", systemImage: "leaf.fill")
+                            Label("Последнее: \(formatDate(lastFertilizingDate))", systemImage: "pills")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         } else {
                             // Нет данных об удобрении
-                            Label("Не запланировано", systemImage: "leaf.fill")
+                            Label("Не запланировано", systemImage: "testtube.2")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
                     } else {
-                        Label("Загрузка...", systemImage: "leaf.fill")
+                        Label("Загрузка...", systemImage: "testtube.2")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -1751,7 +1830,7 @@ struct PlantSelectionRow: View {
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 60, height: 60)
                             .overlay(
-                                Image(systemName: "leaf.fill")
+                                Image(systemName: "leaf")
                                     .foregroundColor(.gray)
                                     .font(.system(size: 24))
                             )
@@ -1889,7 +1968,7 @@ struct ExistingPlantRow: View {
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 60, height: 60)
                             .overlay(
-                                Image(systemName: "leaf.fill")
+                                Image(systemName: "leaf")
                                     .foregroundColor(.gray)
                                     .font(.system(size: 24))
                             )
@@ -1906,7 +1985,7 @@ struct ExistingPlantRow: View {
                     .fill(Color.gray.opacity(0.3))
                     .frame(width: 60, height: 60)
                     .overlay(
-                        Image(systemName: "leaf.fill")
+                        Image(systemName: "leaf")
                             .foregroundColor(.gray)
                             .font(.system(size: 24))
                     )
@@ -2018,7 +2097,7 @@ struct PlantPickerView: View {
                                                 .fill(Color.gray.opacity(0.3))
                                                 .frame(width: 60, height: 60)
                                                 .overlay(
-                                                    Image(systemName: "leaf.fill")
+                                                    Image(systemName: "leaf")
                                                         .foregroundColor(.gray)
                                                         .font(.system(size: 24))
                                                 )
@@ -2035,7 +2114,7 @@ struct PlantPickerView: View {
                                         .fill(Color.gray.opacity(0.3))
                                         .frame(width: 60, height: 60)
                                         .overlay(
-                                            Image(systemName: "leaf.fill")
+                                            Image(systemName: "leaf")
                                                 .foregroundColor(.gray)
                                                 .font(.system(size: 24))
                                         )
@@ -2069,7 +2148,7 @@ struct PlantPickerView: View {
                                     // Влажность
                                     if let humMin = plantType.humidity_min, let humMax = plantType.humidity_max {
                                         HStack(spacing: 4) {
-                                            Image(systemName: "drop.fill")
+                                            Image(systemName: "drop")
                                                 .foregroundColor(DesignColor.mainAccent)
                                                 .font(.caption)
                                             Text("\(String(format: "%.0f", humMin))% - \(String(format: "%.0f", humMax))%")
@@ -2450,7 +2529,7 @@ struct GreenhouseDetailView: View {
                     .padding()
             } else if plantInstances.isEmpty {
                 VStack(spacing: 12) {
-                    Image(systemName: "leaf.fill")
+                    Image(systemName: "leaf")
                         .font(.system(size: 40))
                         .foregroundColor(.gray)
                     Text("Нет растений")
@@ -2804,7 +2883,7 @@ struct GreenhouseDetailView: View {
                                             
                                             // Карточка влажности
                                             SensorDataCard(
-                                                icon: "drop.fill",
+                                                icon: "humidity",
                                                 title: "Влажность",
                                                 value: sensorData != nil ? String(format: "%.0f", sensorData!.humidity) : "--",
                                                 unit: "%"
@@ -3380,7 +3459,6 @@ struct GreenhouseDetailView: View {
     }
 }
 
-// MARK: - Sensor Data Card
 
 // MARK: - Helper Functions
 
@@ -3405,6 +3483,15 @@ private func formatDate(_ dateString: String) -> String {
     return formatter.string(from: date)
 }
 
+private func daysWordForm(_ count: Int) -> String {
+    let absCount = abs(count)
+    if absCount < 5 {
+        return "дня"
+    } else {
+        return "дней"
+    }
+}
+
 // MARK: - Sensor Data Card
 
 struct SensorDataCard: View {
@@ -3425,7 +3512,7 @@ struct SensorDataCard: View {
                     .fontWeight(.medium)
                      .tracking(-0.5)
                     .lineSpacing(15)
-                    .foregroundColor(DesignColor.mainAccent)
+                    .foregroundColor(Color(UIColor.systemGray3))
             }
  
             HStack(alignment: .top, spacing: 2) {
@@ -3506,7 +3593,7 @@ struct PlantCardView: View {
                     .fill(Color.gray.opacity(0.3))
                     .frame(width: 60, height: 60)
                     .overlay(
-                        Image(systemName: "leaf.fill")
+                        Image(systemName: "leaf")
                             .foregroundColor(.gray)
                             .font(.system(size: 24))
                     )
@@ -3529,31 +3616,31 @@ struct PlantCardView: View {
                     if let daysUntil = nextWatering.days_until {
                         // Есть интервал, показываем дни до следующего полива
                         if nextWatering.is_overdue {
-                            Label("Просрочено на \(abs(daysUntil)) дн.", systemImage: "drop.fill")
+                            Label("Просрочено на \(abs(daysUntil)) \(daysWordForm(abs(daysUntil)))", systemImage: "drop")
                                 .font(.subheadline)
-                                .foregroundColor(.red)
+                                .foregroundColor(DesignColor.mainRed)
                         } else if daysUntil == 0 {
-                            Label("Сегодня", systemImage: "drop.fill")
+                            Label("Сегодня", systemImage: "drop")
                                 .font(.subheadline)
-                                .foregroundColor(.orange)
+                                .foregroundColor(DesignColor.myYellow)
                         } else {
-                            Label("Через \(daysUntil) дн.", systemImage: "drop.fill")
+                            Label("\(daysUntil) \(daysWordForm(daysUntil))", systemImage: "drop")
                                 .font(.subheadline)
-                                .foregroundColor(DesignColor.mainAccent)
+                                .foregroundColor(.secondary)
                         }
                     } else if let lastWateringDate = nextWatering.next_watering_date {
                         // Нет интервала, но есть дата последнего полива
-                        Label("Последний: \(formatDate(lastWateringDate))", systemImage: "drop.fill")
+                        Label("Последний: \(formatDate(lastWateringDate))", systemImage: "drop")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     } else {
                         // Нет данных о поливе
-                        Label("Не запланирован", systemImage: "drop.fill")
+                        Label("Не запланирован", systemImage: "drop")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
                 } else {
-                    Label("Загрузка...", systemImage: "drop.fill")
+                    Label("Загрузка...", systemImage: "drop")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -3563,31 +3650,31 @@ struct PlantCardView: View {
                     if let daysUntil = nextFertilizing.days_until {
                         // Есть интервал, показываем дни до следующего удобрения
                         if nextFertilizing.is_overdue {
-                            Label("Просрочено на \(abs(daysUntil)) дн.", systemImage: "leaf.fill")
+                            Label("Просрочено на \(abs(daysUntil)) \(daysWordForm(abs(daysUntil)))", systemImage: "pills")
                                 .font(.subheadline)
-                                .foregroundColor(.red)
+                                .foregroundColor(DesignColor.mainRed)
                         } else if daysUntil == 0 {
-                            Label("Сегодня", systemImage: "leaf.fill")
+                            Label("Сегодня", systemImage: "pills")
                                 .font(.subheadline)
-                                .foregroundColor(.orange)
+                                .foregroundColor(DesignColor.myYellow)
                         } else {
-                            Label("Через \(daysUntil) дн.", systemImage: "leaf.fill")
+                            Label("\(daysUntil) \(daysWordForm(daysUntil))", systemImage: "pills")
                                 .font(.subheadline)
-                                .foregroundColor(.green)
+                                .foregroundColor(.secondary)
                         }
                     } else if let lastFertilizingDate = nextFertilizing.next_watering_date {
                         // Нет интервала, но есть дата последнего удобрения
-                        Label("Последнее: \(formatDate(lastFertilizingDate))", systemImage: "leaf.fill")
+                        Label("Последнее: \(formatDate(lastFertilizingDate))", systemImage: "pills")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     } else {
                         // Нет данных об удобрении
-                        Label("Не запланировано", systemImage: "leaf.fill")
+                        Label("Не запланировано", systemImage: "pills")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
                 } else {
-                    Label("Загрузка...", systemImage: "leaf.fill")
+                    Label("Загрузка...", systemImage: "pills")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }

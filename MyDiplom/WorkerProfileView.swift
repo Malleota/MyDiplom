@@ -764,66 +764,12 @@ struct AddGreenhouseToUserView: View {
                             Button(action: {
                                 selectedGreenhouseId = greenhouse.id
                             }) {
-                                HStack(spacing: 12) {
-                                    // Изображение теплицы
-                                    if let imageUrl = greenhouse.image_url, let url = URL(string: imageUrl) {
-                                        AsyncImage(url: url) { phase in
-                                            switch phase {
-                                            case .empty:
-                                                ProgressView()
-                                                    .frame(width: 50, height: 50)
-                                            case .success(let image):
-                                                image
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: .fill)
-                                            case .failure:
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .fill(Color.gray.opacity(0.3))
-                                                    .frame(width: 50, height: 50)
-                                                    .overlay(
-                                                        Image(systemName: "building.2.fill")
-                                                            .foregroundColor(.gray)
-                                                            .font(.system(size: 20))
-                                                    )
-                                            @unknown default:
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .fill(Color.gray.opacity(0.3))
-                                                    .frame(width: 50, height: 50)
-                                            }
-                                        }
-                                        .frame(width: 50, height: 50)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    } else {
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.gray.opacity(0.3))
-                                            .frame(width: 50, height: 50)
-                                            .overlay(
-                                                Image(systemName: "building.2.fill")
-                                                    .foregroundColor(.gray)
-                                                    .font(.system(size: 20))
-                                            )
-                                    }
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(greenhouse.name)
-                                            .font(.headline)
-                                            .foregroundColor(.primary)
-                                        
-                                        if let description = greenhouse.description, !description.isEmpty {
-                                            Text(description)
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                                .lineLimit(2)
-                                        }
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    if selectedGreenhouseId == greenhouse.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(.blue)
-                                    }
-                                }
+                                GreenhouseSimpleCardView(
+                                    greenhouse: greenhouse,
+                                    isSelected: selectedGreenhouseId == greenhouse.id,
+                                    imageSize: 50,
+                                    showDescription: true
+                                )
                             }
                         }
                     }

@@ -33,7 +33,7 @@ struct MainTabView: View {
             // Справочник
             PlantsView()
                 .tabItem {
-                    Label("Справочник", systemImage: "leaf.fill")
+                    Label("Справочник", systemImage: "leaf")
                 }
                 .tag(1)
             

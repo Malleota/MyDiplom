@@ -41,7 +41,7 @@ struct PlantsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if plantTypes.isEmpty {
                     VStack(spacing: 12) {
-                        Image(systemName: "leaf.fill")
+                        Image(systemName: "leaf")
                             .font(.system(size: 40))
                             .foregroundColor(.gray)
                         Text("Нет растений")
@@ -127,7 +127,7 @@ struct PlantRow: View {
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 50, height: 50)
                             .overlay(
-                                Image(systemName: "leaf.fill")
+                                Image(systemName: "leaf")
                                     .foregroundColor(.gray)
                             )
                     @unknown default:
@@ -143,7 +143,7 @@ struct PlantRow: View {
                     .fill(Color.gray.opacity(0.3))
                     .frame(width: 50, height: 50)
                     .overlay(
-                        Image(systemName: "leaf.fill")
+                        Image(systemName: "leaf")
                             .foregroundColor(.gray)
                     )
             }
@@ -224,7 +224,7 @@ struct PlantDetailView: View {
                             .fill(Color(.secondarySystemBackground))
                             .frame(width: 80, height: 80)
                             .overlay(
-                                Image(systemName: "leaf.fill")
+                                Image(systemName: "leaf")
                                     .foregroundColor(.gray)
                                     .font(.system(size: 24))
                             )
@@ -254,7 +254,7 @@ struct PlantDetailView: View {
                         // Карточка влажности
                         if let humMin = plantType.humidity_min, let humMax = plantType.humidity_max {
                             InfoRow(
-                                icon: "drop.fill",
+                                icon: "drop",
                                 title: "Влажность",
                                 value: "\(String(format: "%.0f", humMin))% - \(String(format: "%.0f", humMax))%"
                             )
@@ -268,7 +268,7 @@ struct PlantDetailView: View {
                             // Интервал полива
                             if let wateringInterval = plantType.watering_interval_days {
                                 InfoRow(
-                                    icon: "drop.fill",
+                                    icon: "drop",
                                     title: "Интервал полива",
                                     value: "\(wateringInterval) \(dayText(wateringInterval))"
                                 )
@@ -277,7 +277,7 @@ struct PlantDetailView: View {
                             // Интервал удобрения
                             if let fertilizingInterval = plantType.fertilizing_interval_days {
                                 InfoRow(
-                                    icon: "leaf.fill",
+                                    icon: "leaf",
                                     title: "Интервал удобрения",
                                     value: "\(fertilizingInterval) \(dayText(fertilizingInterval))"
                                 )
