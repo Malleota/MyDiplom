@@ -258,8 +258,13 @@ struct WorkerProfileView: View {
                                         WorkerReportRowView(
                                             event: event,
                                             greenhouseName: getGreenhouseName(greenhouseId: event.greenhouse_id),
-                                            plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id)
+                                            plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id),
+                                            greenhouseId: event.greenhouse_id
                                         )
+                                        .environmentObject(bleManager)
+                                        .environmentObject(sensorDataManager)
+                                        .environmentObject(wateringDataManager)
+                                        .environmentObject(fertilizingDataManager)
                                     }
                                 }
                             }
@@ -617,6 +622,11 @@ struct WorkerReportRowView: View {
     let event: WaterEventOut
     let greenhouseName: String
     let plantTypeName: String
+    let greenhouseId: String?
+    @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     
     private var actionType: String {
         event.type == "watering" ? "Полив" : "Удобрение"
@@ -703,10 +713,25 @@ struct WorkerReportRowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             
-            Text(greenhouseName)
-                .font(.subheadline)
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Название теплицы с навигацией
+            if let greenhouseId = greenhouseId {
+                NavigationLink(destination: GreenhouseDetailView(greenhouseId: greenhouseId)
+                    .environmentObject(bleManager)
+                    .environmentObject(sensorDataManager)
+                    .environmentObject(wateringDataManager)
+                    .environmentObject(fertilizingDataManager)) {
+                    Text(greenhouseName)
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(PlainButtonStyle())
+            } else {
+                Text(greenhouseName)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             
             Text(plantTypeName)
                 .font(.subheadline)
