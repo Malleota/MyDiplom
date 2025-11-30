@@ -18,6 +18,11 @@ struct PlantsView: View {
     @State private var showEditPlant = false
     @State private var selectedPlantForEdit: PlantTypeOut? = nil
     
+    // Проверяем, является ли пользователь рабочим
+    var isWorker: Bool {
+        AuthManager.shared.currentUser?.role == "worker"
+    }
+    
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
@@ -63,11 +68,13 @@ struct PlantsView: View {
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .contextMenu {
-                                    Button(action: {
-                                        selectedPlantForEdit = plantType
-                                        showEditPlant = true
-                                    }) {
-                                        Label("Редактировать", systemImage: "pencil")
+                                    if !isWorker {
+                                        Button(action: {
+                                            selectedPlantForEdit = plantType
+                                            showEditPlant = true
+                                        }) {
+                                            Label("Редактировать", systemImage: "pencil")
+                                        }
                                     }
                                 }
                             }
@@ -80,11 +87,13 @@ struct PlantsView: View {
             .navigationTitle("Справочник")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showCreatePlant = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 18, weight: .semibold))
+                    if !isWorker {
+                        Button {
+                            showCreatePlant = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 18, weight: .semibold))
+                        }
                     }
                 }
             }
