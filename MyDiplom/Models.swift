@@ -162,6 +162,18 @@ struct WaterEventCreate: Codable {
 
 // MARK: - Plant Models
 
+struct PlantTypeCreate: Codable {
+    let name: String
+    let description: String?
+    let image_url: String?
+    let temp_min: Double?
+    let temp_max: Double?
+    let humidity_min: Double?
+    let humidity_max: Double?
+    let watering_interval_days: Int?
+    let fertilizing_interval_days: Int?
+}
+
 struct PlantTypeOut: Codable, Identifiable {
     let id: String
     let name: String
@@ -195,5 +207,12 @@ struct PlantInstanceUpdate: Codable {
 
 struct BindWorkerIn: Codable {
     let user_id: String
+}
+
+// MARK: - Image Upload Models
+
+struct PlantImageUploadResponse: Codable {
+    let image_url: String
+    let filename: String
 }
 

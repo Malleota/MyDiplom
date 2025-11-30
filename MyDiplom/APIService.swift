@@ -1118,6 +1118,148 @@ class APIService {
         }
     }
     
+    /// Создать новый тип растения в справочнике
+    func createPlantType(_ plant: PlantTypeCreate) async throws -> PlantTypeOut {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ createPlantType: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/plant-types")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try encoder.encode(plant)
+        
+        print("🌿 createPlantType: Создание нового типа растения")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ createPlantType: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🌿 createPlantType: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 201 {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let plantType = try decoder.decode(PlantTypeOut.self, from: data)
+            print("✅ createPlantType: Тип растения успешно создан")
+            return plantType
+        } else if httpResponse.statusCode == 401 {
+            print("❌ createPlantType: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ createPlantType: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Требуются права администратора")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ createPlantType: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Загрузить изображение для растения
+    func uploadPlantImage(imageData: Data, filename: String) async throws -> PlantImageUploadResponse {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ uploadPlantImage: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/plant-types/upload-image")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        // Определяем MIME-тип на основе расширения файла
+        let contentType: String
+        let fileExtension = (filename as NSString).pathExtension.lowercased()
+        switch fileExtension {
+        case "jpg", "jpeg":
+            contentType = "image/jpeg"
+        case "png":
+            contentType = "image/png"
+        case "webp":
+            contentType = "image/webp"
+        default:
+            contentType = "image/jpeg"
+        }
+        
+        // Создаем multipart/form-data запрос
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var body = Data()
+        
+        // Добавляем файл
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = body
+        
+        print("📤 uploadPlantImage: Загрузка изображения \(filename), размер: \(imageData.count) байт, тип: \(contentType)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ uploadPlantImage: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📤 uploadPlantImage: Статус ответа = \(httpResponse.statusCode)")
+        
+        // Логируем ответ для отладки
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("📤 uploadPlantImage: Ответ сервера: \(responseString.prefix(500))")
+        }
+        
+        if httpResponse.statusCode == 200 {
+            do {
+                let decoder = JSONDecoder()
+                // Не используем convertFromSnakeCase, так как модель уже использует snake_case
+                let uploadResponse = try decoder.decode(PlantImageUploadResponse.self, from: data)
+                print("✅ uploadPlantImage: Изображение успешно загружено: \(uploadResponse.image_url)")
+                return uploadResponse
+            } catch {
+                print("❌ uploadPlantImage: Ошибка декодирования ответа: \(error)")
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("❌ uploadPlantImage: Полный ответ: \(responseString)")
+                }
+                throw APIError(detail: "Не удалось обработать ответ сервера: \(error.localizedDescription)")
+            }
+        } else if httpResponse.statusCode == 401 {
+            print("❌ uploadPlantImage: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ uploadPlantImage: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Требуются права администратора")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ uploadPlantImage: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("❌ uploadPlantImage: Ошибка сервера, ответ: \(responseString)")
+                throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode)): \(responseString)")
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
     /// Добавить растение в теплицу
     func addPlantInstance(greenhouseId: String, plant: PlantInstanceCreate) async throws -> PlantInstanceOut {
         guard let token = AuthManager.shared.accessToken else {
