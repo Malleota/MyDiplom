@@ -1256,6 +1256,51 @@ class APIService {
         }
     }
     
+    /// Удалить тип растения из справочника
+    func deletePlantType(plantTypeId: String) async throws {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ deletePlantType: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/plant-types/\(plantTypeId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("🌿 deletePlantType: Удаление типа растения \(plantTypeId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ deletePlantType: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🌿 deletePlantType: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 204 {
+            print("✅ deletePlantType: Тип растения успешно удален")
+            return
+        } else if httpResponse.statusCode == 401 {
+            print("❌ deletePlantType: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ deletePlantType: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Требуются права администратора")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ deletePlantType: Ошибка 404 - Тип растения не найден")
+            throw APIError(detail: "Тип растения не найден")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ deletePlantType: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
     /// Загрузить изображение для растения
     func uploadPlantImage(imageData: Data, filename: String) async throws -> PlantImageUploadResponse {
         guard let token = AuthManager.shared.accessToken else {

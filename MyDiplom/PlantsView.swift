@@ -17,10 +17,20 @@ struct PlantsView: View {
     @State private var showCreatePlant = false
     @State private var showEditPlant = false
     @State private var selectedPlantForEdit: PlantTypeOut? = nil
+    @State private var selectedPlantForDelete: PlantTypeOut? = nil
+    @State private var showDeleteAlert = false
+    @State private var showDeleteErrorAlert = false
+    @State private var deleteErrorMessage: String? = nil
+    @State private var isDeleting = false
     
     // Проверяем, является ли пользователь рабочим
     var isWorker: Bool {
         AuthManager.shared.currentUser?.role == "worker"
+    }
+    
+    // Проверяем, является ли пользователь администратором
+    var isAdmin: Bool {
+        AuthManager.shared.currentUser?.role == "admin"
     }
     
     var body: some View {
@@ -69,11 +79,20 @@ struct PlantsView: View {
                                 .buttonStyle(PlainButtonStyle())
                                 .contextMenu {
                                     if !isWorker {
-                                    Button(action: {
-                                        selectedPlantForEdit = plantType
-                                        showEditPlant = true
-                                    }) {
-                                        Label("Редактировать", systemImage: "pencil")
+                                        Button(action: {
+                                            selectedPlantForEdit = plantType
+                                            showEditPlant = true
+                                        }) {
+                                            Label("Редактировать", systemImage: "pencil")
+                                        }
+                                    }
+                                    
+                                    if isAdmin {
+                                        Button(role: .destructive, action: {
+                                            selectedPlantForDelete = plantType
+                                            showDeleteAlert = true
+                                        }) {
+                                            Label("Удалить", systemImage: "trash")
                                         }
                                     }
                                 }
@@ -111,6 +130,28 @@ struct PlantsView: View {
             .onChange(of: showEditPlant) { isPresented in
                 if !isPresented {
                     selectedPlantForEdit = nil
+                }
+            }
+            .alert("Вы уверены что хотите удалить", isPresented: $showDeleteAlert) {
+                Button("Удалить", role: .destructive) {
+                    if let plantType = selectedPlantForDelete {
+                        Task {
+                            await deletePlantType(plantType)
+                        }
+                    }
+                }
+                Button("Отмена", role: .cancel) {
+                    selectedPlantForDelete = nil
+                }
+            }
+            .alert("Ошибка", isPresented: $showDeleteErrorAlert) {
+                Button("OK") {
+                    deleteErrorMessage = nil
+                    showDeleteErrorAlert = false
+                }
+            } message: {
+                if let errorMessage = deleteErrorMessage {
+                    Text(errorMessage)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("PlantTypeUpdated"))) { _ in
@@ -151,6 +192,40 @@ struct PlantsView: View {
                 isLoading = false
             }
             print("❌ Ошибка загрузки растений: \(error)")
+        }
+    }
+    
+    private func deletePlantType(_ plantType: PlantTypeOut) async {
+        await MainActor.run {
+            isDeleting = true
+            deleteErrorMessage = nil
+        }
+        
+        do {
+            try await APIService.shared.deletePlantType(plantTypeId: plantType.id)
+            print("✅ Растение \(plantType.name) успешно удалено из справочника")
+            
+            // Обновляем список растений
+            await loadPlantTypesAsync()
+            
+            // Отправляем уведомление об обновлении
+            NotificationCenter.default.post(name: NSNotification.Name("PlantTypeUpdated"), object: nil)
+            
+            await MainActor.run {
+                isDeleting = false
+                selectedPlantForDelete = nil
+            }
+        } catch {
+            print("❌ Ошибка удаления растения: \(error)")
+            await MainActor.run {
+                isDeleting = false
+                if let apiError = error as? APIError {
+                    deleteErrorMessage = apiError.detail
+                } else {
+                    deleteErrorMessage = "Ошибка удаления: \(error.localizedDescription)"
+                }
+                showDeleteErrorAlert = true
+            }
         }
     }
 }
