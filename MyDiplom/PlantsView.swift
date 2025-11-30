@@ -227,12 +227,39 @@ struct PlantRow: View {
 // MARK: - Plant Detail View
 struct PlantDetailView: View {
     let plantType: PlantTypeOut
+    @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
+    @State private var greenhouses: [GreenhouseOut] = []
+    @State private var isLoadingGreenhouses = false
+    @State private var greenhouseError: String?
     
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading,spacing: 24) {
+            VStack(alignment:.leading, spacing: 24) {
                 // Заголовок: Название и описание с картинкой
-                VStack(alignment: .center, spacing: 12) {
+                HStack(alignment:.top, spacing: 12) {
+                    // Вертикальный контейнер с названием и описанием
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(plantType.name)
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .multilineTextAlignment(.leading)
+                        
+                        if let description = plantType.description, !description.isEmpty {
+                            Text(description)
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                                .lineLimit(12)
+                                .multilineTextAlignment(.leading)
+                                .padding(.top, 8)
+                        }
+                    }
+                    
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    
                     if let imageUrl = plantType.image_url,
                        let url = APIService.shared.getFullImageURL(imageUrl) {
                         AsyncImage(url: url) { image in
@@ -256,24 +283,8 @@ struct PlantDetailView: View {
                                     .font(.system(size: 24))
                             )
                     }
-                    // Вертикальный контейнер с названием и описанием
-                    VStack(alignment: .center, spacing: 0) {
-                        Text(plantType.name)
-                            .font(.title)
-                            .fontWeight(.bold)
-                            .multilineTextAlignment(.center)
-                        
-                        if let description = plantType.description, !description.isEmpty {
-                            Text(description)
-                                .font(.callout)
-                                .foregroundColor(.secondary)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.center)
-                                .padding(.top, 8)
-                        }
-                    }
                 }
-                .frame(maxWidth: .infinity)
+                //.frame(maxWidth: .infinity)
                 .padding(8)
                 .padding(.horizontal)
                 
@@ -335,11 +346,89 @@ struct PlantDetailView: View {
                     }
                 }
                 .padding(.top, 8)
+                
+                // Список теплиц
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Теплицы")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal)
+                    
+                    if isLoadingGreenhouses {
+                        HStack {
+                            Spacer()
+                            ProgressView("Загрузка теплиц...")
+                                .padding()
+                            Spacer()
+                        }
+                    } else if let error = greenhouseError {
+                        VStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.red)
+                                .font(.title2)
+                            Text(error)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                    } else if greenhouses.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "building.2")
+                                .foregroundColor(.gray)
+                                .font(.title2)
+                            Text("Растение не привязано ни к одной теплице")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                    } else {
+                        VStack(spacing: 12) {
+                            ForEach(greenhouses) { greenhouse in
+                                NavigationLink(destination: GreenhouseDetailView(greenhouseId: greenhouse.id)
+                                    .environmentObject(bleManager)
+                                    .environmentObject(sensorDataManager)
+                                    .environmentObject(wateringDataManager)
+                                    .environmentObject(fertilizingDataManager)) {
+                                    HStack(spacing: 12) {
+                                        GreenhouseSimpleCardView(
+                                            greenhouse: greenhouse,
+                                            isSelected: false,
+                                            imageSize: 50,
+                                            showDescription: true
+                                        )
+                                        
+                                        Image(systemName: "chevron.right")
+                                            .foregroundColor(.secondary)
+                                            .font(.caption)
+                                    }
+                                    .padding()
+                                    .background(Color(.systemBackground))
+                                    .cornerRadius(12)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Color.gray.opacity(0.2), lineWidth: 1.0)
+                                    )
+                                    .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+                .padding(.top, 8)
             }
             .padding(.vertical, 16)
         }
         .navigationTitle(plantType.name)
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadGreenhouses()
+        }
     }
     
     private func dayText(_ days: Int) -> String {
@@ -354,6 +443,55 @@ struct PlantDetailView: View {
             return "дня"
         } else {
             return "дней"
+        }
+    }
+    
+    private func loadGreenhouses() async {
+        isLoadingGreenhouses = true
+        greenhouseError = nil
+        
+        do {
+            // Получаем все теплицы
+            let allGreenhouses = try await APIService.shared.getGreenhouses()
+            
+            // Получаем экземпляры растений для всех теплиц параллельно
+            var greenhousesWithPlant: [GreenhouseOut] = []
+            
+            await withTaskGroup(of: (GreenhouseOut, [PlantInstanceOut]?).self) { group in
+                for greenhouse in allGreenhouses {
+                    group.addTask {
+                        do {
+                            let plantInstances = try await APIService.shared.getPlantInstances(greenhouseId: greenhouse.id)
+                            return (greenhouse, plantInstances)
+                        } catch {
+                            // Игнорируем ошибки доступа к отдельным теплицам
+                            return (greenhouse, nil)
+                        }
+                    }
+                }
+                
+                for await (greenhouse, plantInstances) in group {
+                    if let instances = plantInstances,
+                       instances.contains(where: { $0.plant_type_id == plantType.id }) {
+                        greenhousesWithPlant.append(greenhouse)
+                    }
+                }
+            }
+            
+            await MainActor.run {
+                greenhouses = greenhousesWithPlant
+                isLoadingGreenhouses = false
+            }
+        } catch {
+            await MainActor.run {
+                isLoadingGreenhouses = false
+                if let apiError = error as? APIError {
+                    greenhouseError = apiError.detail
+                } else {
+                    greenhouseError = error.localizedDescription
+                }
+            }
+            print("❌ Ошибка загрузки теплиц для растения: \(error)")
         }
     }
 }
