@@ -424,6 +424,41 @@ class APIService {
         }
     }
     
+    /// Удалить теплицу
+    func deleteGreenhouse(id: String) async throws {
+        guard let token = AuthManager.shared.accessToken else {
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/greenhouses/\(id)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        if httpResponse.statusCode == 204 {
+            print("✅ Теплица \(id) успешно удалена")
+            return
+        } else if httpResponse.statusCode == 401 {
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            throw APIError(detail: "Доступ запрещен. Только администратор может удалять теплицы")
+        } else if httpResponse.statusCode == 404 {
+            throw APIError(detail: "Теплица не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
+    
     /// Получить текущие данные датчика для теплицы
     func getCurrentSensorData(greenhouseId: String) async throws -> SensorReadingOut? {
         guard let token = AuthManager.shared.accessToken else {

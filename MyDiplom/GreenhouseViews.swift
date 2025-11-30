@@ -24,6 +24,11 @@ struct GreenhouseListView: View {
     @State private var showCreateGreenhouse = false
     @State private var showEditGreenhouse = false
     @State private var selectedGreenhouseForEdit: GreenhouseOut? = nil
+    @State private var selectedGreenhouseForDelete: GreenhouseOut? = nil
+    @State private var showDeleteAlert = false
+    @State private var isDeleting = false
+    @State private var showDeleteErrorAlert = false
+    @State private var deleteErrorMessage: String? = nil
     
     private var shouldShowCreateButton: Bool {
         AuthManager.shared.currentUser?.role != "worker"
@@ -76,6 +81,13 @@ struct GreenhouseListView: View {
                                         }) {
                                             Label("Редактировать", systemImage: "pencil")
                                         }
+                                        
+                                        Button(role: .destructive, action: {
+                                            selectedGreenhouseForDelete = greenhouse
+                                            showDeleteAlert = true
+                                        }) {
+                                            Label("Удалить", systemImage: "trash")
+                                        }
                                     }
                                 }
                             }
@@ -107,6 +119,28 @@ struct GreenhouseListView: View {
             .onChange(of: showEditGreenhouse) { isPresented in
                 if !isPresented {
                     selectedGreenhouseForEdit = nil
+                }
+            }
+            .alert("Вы уверены что хотите удалить", isPresented: $showDeleteAlert) {
+                Button("Удалить", role: .destructive) {
+                    if let greenhouse = selectedGreenhouseForDelete {
+                        Task {
+                            await deleteGreenhouse(greenhouse)
+                        }
+                    }
+                }
+                Button("Отмена", role: .cancel) {
+                    selectedGreenhouseForDelete = nil
+                }
+            }
+            .alert("Ошибка", isPresented: $showDeleteErrorAlert) {
+                Button("OK") {
+                    deleteErrorMessage = nil
+                    showDeleteErrorAlert = false
+                }
+            } message: {
+                if let errorMessage = deleteErrorMessage {
+                    Text(errorMessage)
                 }
             }
             .task {
@@ -204,6 +238,50 @@ struct GreenhouseListView: View {
         } else if !hasSensors && isScreenRegistered {
             sensorDataManager.unregisterActiveScreen()
             isScreenRegistered = false
+        }
+    }
+    
+    private func deleteGreenhouse(_ greenhouse: GreenhouseOut) async {
+        await MainActor.run {
+            isDeleting = true
+            deleteErrorMessage = nil
+        }
+        
+        do {
+            try await APIService.shared.deleteGreenhouse(id: greenhouse.id)
+            print("✅ Теплица \(greenhouse.name) успешно удалена")
+            
+            // Очищаем данные для удаленной теплицы
+            await MainActor.run {
+                sensorDataManager.clearSensorData(greenhouseId: greenhouse.id)
+                wateringDataManager.clearData(greenhouseId: greenhouse.id)
+                fertilizingDataManager.clearData(greenhouseId: greenhouse.id)
+            }
+            
+            // Удаляем сохраненное соответствие BLE, если есть
+            UserDefaults.standard.removeObject(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+            
+            // Обновляем список теплиц
+            await viewModel.loadGreenhouses(bleManager: bleManager, forceReload: true)
+            
+            // Отправляем уведомление об обновлении
+            NotificationCenter.default.post(name: NSNotification.Name("GreenhouseUpdated"), object: nil)
+            
+            await MainActor.run {
+                isDeleting = false
+                selectedGreenhouseForDelete = nil
+            }
+        } catch {
+            print("❌ Ошибка удаления теплицы: \(error)")
+            await MainActor.run {
+                isDeleting = false
+                if let apiError = error as? APIError {
+                    deleteErrorMessage = apiError.detail
+                } else {
+                    deleteErrorMessage = "Ошибка удаления: \(error.localizedDescription)"
+                }
+                showDeleteErrorAlert = true
+            }
         }
     }
 }
