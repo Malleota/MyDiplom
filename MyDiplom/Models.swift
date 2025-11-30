@@ -174,6 +174,18 @@ struct PlantTypeCreate: Codable {
     let fertilizing_interval_days: Int?
 }
 
+struct PlantTypeUpdate: Codable {
+    let name: String?
+    let description: String?
+    let image_url: String?
+    let temp_min: Double?
+    let temp_max: Double?
+    let humidity_min: Double?
+    let humidity_max: Double?
+    let watering_interval_days: Int?
+    let fertilizing_interval_days: Int?
+}
+
 struct PlantTypeOut: Codable, Identifiable {
     let id: String
     let name: String

@@ -1168,6 +1168,59 @@ class APIService {
         }
     }
     
+    /// Обновить тип растения в справочнике
+    func updatePlantType(plantTypeId: String, update: PlantTypeUpdate) async throws -> PlantTypeOut {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ updatePlantType: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/plant-types/\(plantTypeId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try encoder.encode(update)
+        
+        print("🌿 updatePlantType: Обновление типа растения \(plantTypeId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ updatePlantType: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🌿 updatePlantType: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let plantType = try decoder.decode(PlantTypeOut.self, from: data)
+            print("✅ updatePlantType: Тип растения успешно обновлен")
+            return plantType
+        } else if httpResponse.statusCode == 401 {
+            print("❌ updatePlantType: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ updatePlantType: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Требуются права администратора")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ updatePlantType: Ошибка 404 - Тип растения не найден")
+            throw APIError(detail: "Тип растения не найден")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ updatePlantType: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
     /// Загрузить изображение для растения
     func uploadPlantImage(imageData: Data, filename: String) async throws -> PlantImageUploadResponse {
         guard let token = AuthManager.shared.accessToken else {
