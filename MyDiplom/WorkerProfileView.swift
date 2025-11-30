@@ -73,13 +73,13 @@ struct WorkerProfileView: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         } placeholder: {
-                            Circle()
+                            RoundedRectangle(cornerRadius: 10)
                                 .fill(Color(.secondarySystemBackground))
                         }
                         .frame(width: 80, height: 80)
-                        .clipShape(Circle())
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                     } else {
-                        Circle()
+                        RoundedRectangle(cornerRadius: 10)
                             .fill(Color(.secondarySystemBackground))
                             .frame(width: 80, height: 80)
                             .overlay(
