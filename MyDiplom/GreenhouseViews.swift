@@ -3517,10 +3517,10 @@ struct SensorDataCard: View {
  
             HStack(alignment: .top, spacing: 2) {
                     Text(value)
-                        .font(.title2)
+                        .font(.title3)
                         .fontWeight(.semibold)
                     Text(unit)
-                        .font(.title2)
+                        .font(.title3)
                         .fontWeight(.semibold)
             }
             //.padding(.leading,8)

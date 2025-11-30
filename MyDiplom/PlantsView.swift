@@ -186,26 +186,9 @@ struct PlantDetailView: View {
     
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading,spacing: 24) {
                 // Заголовок: Название и описание с картинкой
-                HStack(alignment: .top, spacing: 12) {
-                    // Вертикальный контейнер с названием и описанием
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(plantType.name)
-                            .font(.title)
-                            .fontWeight(.bold)
-                        
-                        if let description = plantType.description, !description.isEmpty {
-                            Text(description)
-                                .font(.callout)
-                                .foregroundColor(.secondary)
-                                .lineLimit(2)
-                                .padding(.top, 8)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    // Картинка справа
+                VStack(alignment: .center, spacing: 12) {
                     if let imageUrl = plantType.image_url,
                        let url = APIService.shared.getFullImageURL(imageUrl) {
                         AsyncImage(url: url) { image in
@@ -229,7 +212,24 @@ struct PlantDetailView: View {
                                     .font(.system(size: 24))
                             )
                     }
+                    // Вертикальный контейнер с названием и описанием
+                    VStack(alignment: .center, spacing: 0) {
+                        Text(plantType.name)
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .multilineTextAlignment(.center)
+                        
+                        if let description = plantType.description, !description.isEmpty {
+                            Text(description)
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                                .padding(.top, 8)
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity)
                 .padding(8)
                 .padding(.horizontal)
                 
@@ -244,19 +244,21 @@ struct PlantDetailView: View {
                     HStack(spacing: 12) {
                         // Карточка температуры
                         if let tempMin = plantType.temp_min, let tempMax = plantType.temp_max {
-                            InfoRow(
+                            SensorDataCard(
                                 icon: "thermometer",
                                 title: "Температура",
-                                value: "\(String(format: "%.1f", tempMin))°C - \(String(format: "%.1f", tempMax))°C"
+                                value: "\(String(format: "%.1f", tempMin)) - \(String(format: "%.1f", tempMax))",
+                                unit: "°C"
                             )
                         }
                         
                         // Карточка влажности
                         if let humMin = plantType.humidity_min, let humMax = plantType.humidity_max {
-                            InfoRow(
-                                icon: "drop",
+                            SensorDataCard(
+                                icon: "humidity",
                                 title: "Влажность",
-                                value: "\(String(format: "%.0f", humMin))% - \(String(format: "%.0f", humMax))%"
+                                value: "\(String(format: "%.0f", humMin)) - \(String(format: "%.0f", humMax))",
+                                unit: "%"
                             )
                         }
                     }
@@ -267,19 +269,21 @@ struct PlantDetailView: View {
                         HStack(spacing: 12) {
                             // Интервал полива
                             if let wateringInterval = plantType.watering_interval_days {
-                                InfoRow(
+                                SensorDataCard(
                                     icon: "drop",
-                                    title: "Интервал полива",
-                                    value: "\(wateringInterval) \(dayText(wateringInterval))"
+                                    title: "Полив",
+                                    value: "\(wateringInterval)",
+                                    unit: " \(dayText(wateringInterval))"
                                 )
                             }
                             
                             // Интервал удобрения
                             if let fertilizingInterval = plantType.fertilizing_interval_days {
-                                InfoRow(
-                                    icon: "leaf",
-                                    title: "Интервал удобрения",
-                                    value: "\(fertilizingInterval) \(dayText(fertilizingInterval))"
+                                SensorDataCard(
+                                    icon: "pills",
+                                    title: "Удобрение",
+                                    value: "\(fertilizingInterval)",
+                                    unit: " \(dayText(fertilizingInterval))"
                                 )
                             }
                         }
