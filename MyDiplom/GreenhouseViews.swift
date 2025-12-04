@@ -2580,7 +2580,7 @@ struct ReportRowView: View {
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(dateString)
-                    .font(.subheadline)
+                    .font(.caption)
                     .foregroundColor(.primary)
                 
                 Text(timeString)
@@ -2598,7 +2598,7 @@ struct ReportRowView: View {
                     .environmentObject(fertilizingDataManager)) {
                     Text(userName)
                         .font(.subheadline)
-                        .foregroundColor(.blue)
+                        .foregroundColor(DesignColor.myBlue)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -2610,6 +2610,149 @@ struct ReportRowView: View {
             }
             
             Text(plantTypeName)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .background(Color(.systemBackground))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(Color(.separator)),
+            alignment: .bottom
+        )
+    }
+}
+
+// MARK: - Overdue Report Row View
+
+struct OverdueReportRowView: View {
+    let report: OverdueReportOut
+    
+    private var reportTypeIcon: String {
+        if report.report_type == "watering_overdue" {
+            return "drop"
+        } else if report.report_type == "fertilizing_overdue" {
+            return "pills"
+        } else {
+            return "exclamationmark.triangle"
+        }
+    }
+    
+    private var reportTypeName: String {
+        return "Просрочка"
+    }
+    
+    private var dateString: String {
+        guard let date = parseDate(report.created_at) else {
+            return report.created_at
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd.MM.yyyy"
+        return formatter.string(from: date)
+    }
+    
+    private var timeString: String {
+        guard let date = parseDate(report.created_at) else {
+            return ""
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+    
+    private var statusString: String {
+        let daysText = "\(report.days_overdue) дней"
+        if report.resolved_at != nil {
+            return "Решено: \(daysText)"
+        } else {
+            return "\(daysText)"
+        }
+    }
+    
+    private func parseDate(_ dateString: String) -> Date? {
+        // Пробуем ISO8601 форматы
+        var isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = isoFormatter.date(from: dateString) { return date }
+        
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        if let date = isoFormatter.date(from: dateString) { return date }
+        
+        // Исправляем неполный формат "2025-11-25T2"
+        if dateString.contains("T") {
+            let parts = dateString.split(separator: "T")
+            guard parts.count == 2 else { return nil }
+            
+            let datePart = String(parts[0])
+            var timePart = String(parts[1]).replacingOccurrences(of: "Z", with: "")
+            
+            // Удаляем дробные секунды, если есть
+            if let dotIndex = timePart.firstIndex(of: ".") {
+                timePart = String(timePart[..<dotIndex])
+            }
+            
+            // Исправляем неполное время
+            if !timePart.contains(":") {
+                timePart = timePart.count == 1 ? "0\(timePart):00:00" : "\(timePart):00:00"
+            } else {
+                let components = timePart.split(separator: ":")
+                if components.count == 2 {
+                    timePart = "\(timePart):00"
+                }
+            }
+            
+            // Парсим исправленную строку через DateFormatter
+            let fixed = "\(datePart)T\(timePart)"
+            let parser = DateFormatter()
+            parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+            parser.locale = Locale(identifier: "en_US_POSIX")
+            return parser.date(from: fixed)
+        }
+        
+        return nil
+    }
+    
+    private var isResolved: Bool {
+        if let resolvedAt = report.resolved_at {
+            return !resolvedAt.isEmpty
+        }
+        return false
+    }
+    //Верстка таблицы отчетов 
+    var body: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(reportTypeName)
+                    .font(.footnote)
+                    .foregroundColor(DesignColor.mainRed.opacity(0.8))
+                Image(systemName: reportTypeIcon)
+                    .font(.footnote)
+                    .foregroundColor(DesignColor.mainRed.opacity(0.8))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dateString)
+                    .font(.caption)
+                    .foregroundColor(.primary)
+                
+                Text(timeString)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            Text(statusString)
+                .font(.caption)
+                .foregroundColor(DesignColor.mainRed.opacity(0.8))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            Text(report.plant_name ?? "—")
                 .font(.subheadline)
                 .foregroundColor(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2658,6 +2801,7 @@ struct GreenhouseDetailView: View {
     @State private var isLoadingWorkers = false
     @State private var wateringEvents: [WaterEventOut] = []
     @State private var fertilizingEvents: [WaterEventOut] = []
+    @State private var overdueReports: [OverdueReportOut] = []
     @State private var isLoadingReports = false
     
     // Проверяем, является ли пользователь рабочим
@@ -2680,6 +2824,52 @@ struct GreenhouseDetailView: View {
         return uniqueEvents.sorted { event1, event2 in
             // Сортируем по дате создания (новые сверху)
             return event1.created_at > event2.created_at
+        }
+    }
+    
+    // Enum для объединения событий и отчетов
+    enum ReportItem: Identifiable {
+        case event(WaterEventOut)
+        case report(OverdueReportOut)
+        
+        var id: String {
+            switch self {
+            case .event(let event):
+                return "event_\(event.id)"
+            case .report(let report):
+                return "report_\(report.id)"
+            }
+        }
+        
+        var createdAt: String {
+            switch self {
+            case .event(let event):
+                return event.created_at
+            case .report(let report):
+                return report.created_at
+            }
+        }
+    }
+    
+    // Объединенный список событий и отчетов о просрочках для отображения
+    private var allReportItems: [ReportItem] {
+        var items: [ReportItem] = []
+        
+        // Добавляем события
+        for event in allReportEvents {
+            items.append(.event(event))
+        }
+        
+        // Добавляем отчеты о просрочках
+        for report in overdueReports {
+            items.append(.report(report))
+        }
+        
+        // Сортируем по дате создания (новые сверху)
+        return items.sorted { item1, item2 in
+            let date1 = item1.createdAt
+            let date2 = item2.createdAt
+            return date1 > date2
         }
     }
     
@@ -2831,9 +3021,10 @@ struct GreenhouseDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding()
             } else {
-                let allEvents = allReportEvents
+                // Отладочная информация
+                let _ = print("📊 reportsTabContent: isLoadingReports=\(isLoadingReports), events=\(wateringEvents.count)+\(fertilizingEvents.count), reports=\(overdueReports.count), allItems=\(allReportItems.count)")
                 
-                if allEvents.isEmpty {
+                if allReportItems.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "doc.text.fill")
                             .font(.system(size: 40))
@@ -2841,6 +3032,10 @@ struct GreenhouseDetailView: View {
                         Text("Нет данных")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+                        Text("События: \(wateringEvents.count) полив, \(fertilizingEvents.count) удобрение\nОтчёты: \(overdueReports.count)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 32)
@@ -2849,7 +3044,7 @@ struct GreenhouseDetailView: View {
                         VStack(spacing: 0) {
                             // Заголовок таблицы
                             HStack(spacing: 0) {
-                                Text("Тип действия")
+                                Text("Тип")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
@@ -2861,7 +3056,7 @@ struct GreenhouseDetailView: View {
                                     .foregroundColor(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 
-                                Text("Кто выполнил")
+                                Text("Детали")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
@@ -2878,7 +3073,9 @@ struct GreenhouseDetailView: View {
                             .background(Color(.secondarySystemBackground))
                             
                             // Строки таблицы
-                            ForEach(allEvents) { event in
+                            ForEach(allReportItems) { item in
+                                switch item {
+                                case .event(let event):
                                 ReportRowView(
                                     event: event,
                                     userName: getUserName(userId: event.user_id),
@@ -2890,6 +3087,9 @@ struct GreenhouseDetailView: View {
                                 .environmentObject(sensorDataManager)
                                 .environmentObject(wateringDataManager)
                                 .environmentObject(fertilizingDataManager)
+                                case .report(let report):
+                                    OverdueReportRowView(report: report)
+                                }
                             }
                         }
                     }
@@ -3244,6 +3444,10 @@ struct GreenhouseDetailView: View {
             if isWorker && selectedTab == .reports {
                 selectedTab = .plants
             }
+            // Загружаем отчеты, если вкладка отчетов доступна и выбрана
+            if !isWorker && selectedTab == .reports {
+                await loadReports()
+            }
         }
         .onChange(of: selectedTab) { newTab in
             if newTab == .reports {
@@ -3395,26 +3599,71 @@ struct GreenhouseDetailView: View {
     }
     
     private func loadReports() async {
+        print("📊 loadReports: Начало загрузки отчетов для теплицы \(greenhouseId)")
+        
+        // Логируем роль пользователя
+        if let currentUser = AuthManager.shared.currentUser {
+            print("📊 loadReports: Пользователь: \(currentUser.name), роль: \(currentUser.role), id: \(currentUser.id)")
+        }
+        
         isLoadingReports = true
         defer { isLoadingReports = false }
         
         do {
             // Загружаем события полива
+            print("📊 loadReports: Загрузка событий полива...")
             let watering = try await APIService.shared.getWateringEvents(greenhouseId: greenhouseId)
+            print("📊 loadReports: Загружено \(watering.count) событий полива")
             
             // Загружаем события удобрения
+            print("📊 loadReports: Загрузка событий удобрения...")
             let fertilizing = try await APIService.shared.getFertilizingEvents(greenhouseId: greenhouseId)
+            print("📊 loadReports: Загружено \(fertilizing.count) событий удобрения")
+            
+            // Загружаем отчеты о просрочках
+            print("📊 loadReports: Загрузка отчетов о просрочках для greenhouseId=\(greenhouseId)...")
+            
+            // Загружаем отчёты с фильтром по текущей теплице
+            var reports = try await APIService.shared.getOverdueReports(greenhouseId: greenhouseId, resolved: nil)
+            print("📊 loadReports: Загружено \(reports.count) отчётов для теплицы \(greenhouseId)")
+            
+            // Если для текущей теплицы нет отчётов, загружаем все доступные отчёты
+            // (пользователь может хотеть видеть отчёты для других теплиц)
+            if reports.isEmpty {
+                print("📊 loadReports: Для текущей теплицы отчётов нет, загружаем все доступные отчёты...")
+                let allReports = try await APIService.shared.getOverdueReports(greenhouseId: nil, resolved: nil)
+                print("📊 loadReports: Всего доступных отчётов: \(allReports.count)")
+                reports = allReports
+                
+                // Логируем все отчёты для диагностики
+                for report in allReports {
+                    print("📊 loadReports: Доступный отчёт - id=\(report.id), greenhouse_id=\(report.greenhouse_id), name=\(report.greenhouse_name ?? "nil"), type=\(report.report_type)")
+                }
+            }
+            
+            // Логируем загруженные отчёты
+            print("📊 loadReports: Итого загружено \(reports.count) отчётов для отображения")
+            for report in reports {
+                print("📊 loadReports: Отчёт - id=\(report.id), greenhouse_id=\(report.greenhouse_id), name=\(report.greenhouse_name ?? "nil"), type=\(report.report_type), days_overdue=\(report.days_overdue)")
+            }
             
             await MainActor.run {
                 wateringEvents = watering
                 fertilizingEvents = fertilizing
+                overdueReports = reports
+                print("📊 loadReports: Данные обновлены в UI. Всего элементов: \(allReportItems.count)")
             }
-            print("📊 loadReports: Загружено \(watering.count) событий полива и \(fertilizing.count) событий удобрения")
+            print("📊 loadReports: Загружено \(watering.count) событий полива, \(fertilizing.count) событий удобрения и \(reports.count) отчетов о просрочках")
         } catch {
             print("❌ Ошибка загрузки отчетов: \(error)")
+            if let apiError = error as? APIError {
+                print("❌ API Error detail: \(apiError.detail)")
+            }
             await MainActor.run {
                 wateringEvents = []
                 fertilizingEvents = []
+                overdueReports = []
+                print("📊 loadReports: Данные очищены из-за ошибки")
             }
         }
     }

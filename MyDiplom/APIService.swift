@@ -1746,6 +1746,164 @@ class APIService {
         return workerGreenhouses
     }
     
+    /// Получить список отчетов о просрочках
+    func getOverdueReports(greenhouseId: String? = nil, reportType: String? = nil, resolved: Bool? = nil) async throws -> [OverdueReportOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getOverdueReports: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        var urlComponents = URLComponents(string: "\(baseURL)/overdue-reports")!
+        var queryItems: [URLQueryItem] = []
+        
+        if let greenhouseId = greenhouseId {
+            queryItems.append(URLQueryItem(name: "greenhouse_id", value: greenhouseId))
+        }
+        if let reportType = reportType {
+            queryItems.append(URLQueryItem(name: "report_type", value: reportType))
+        }
+        if let resolved = resolved {
+            queryItems.append(URLQueryItem(name: "resolved", value: resolved ? "true" : "false"))
+        }
+        
+        if !queryItems.isEmpty {
+            urlComponents.queryItems = queryItems
+        }
+        
+        let url = urlComponents.url!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30.0
+        
+        print("📡 getOverdueReports: Запрос отчетов о просрочках")
+        print("📡 getOverdueReports: URL = \(url.absoluteString)")
+        print("📡 getOverdueReports: greenhouseId параметр = \(greenhouseId ?? "nil")")
+        print("📡 getOverdueReports: queryItems count = \(queryItems.count)")
+        for item in queryItems {
+            print("📡 getOverdueReports: queryItem - \(item.name) = \(item.value ?? "nil")")
+        }
+        if let resolved = resolved {
+            print("📡 getOverdueReports: Параметр resolved = \(resolved)")
+        } else {
+            print("📡 getOverdueReports: Параметр resolved = nil (будут загружены все отчёты)")
+        }
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getOverdueReports: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📡 getOverdueReports: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            // OverdueReportOut использует snake_case поля, поэтому keyDecodingStrategy не нужен
+            do {
+                let reports = try decoder.decode([OverdueReportOut].self, from: data)
+                print("✅ getOverdueReports: Получено \(reports.count) отчетов о просрочках")
+                
+                // Логируем ответ сервера для отладки
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("📡 getOverdueReports: Ответ сервера: \(responseString)")
+                }
+                
+                // Логируем каждый отчёт
+                for report in reports {
+                    print("📊 Отчёт: id=\(report.id), greenhouse_id=\(report.greenhouse_id), report_type=\(report.report_type), days_overdue=\(report.days_overdue)")
+                }
+                
+                return reports
+            } catch {
+                print("❌ getOverdueReports: Ошибка декодирования: \(error)")
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("❌ getOverdueReports: Ответ сервера: \(responseString.prefix(500))")
+                }
+                throw APIError(detail: "Ошибка декодирования данных: \(error.localizedDescription)")
+            }
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getOverdueReports: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getOverdueReports: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Получить отчеты о просрочках для конкретной теплицы
+    func getGreenhouseOverdueReports(greenhouseId: String, reportType: String? = nil, resolved: Bool? = nil) async throws -> [OverdueReportOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getGreenhouseOverdueReports: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        var urlComponents = URLComponents(string: "\(baseURL)/greenhouses/\(greenhouseId)/overdue-reports")!
+        var queryItems: [URLQueryItem] = []
+        
+        if let reportType = reportType {
+            queryItems.append(URLQueryItem(name: "report_type", value: reportType))
+        }
+        if let resolved = resolved {
+            queryItems.append(URLQueryItem(name: "resolved", value: resolved ? "true" : "false"))
+        }
+        
+        if !queryItems.isEmpty {
+            urlComponents.queryItems = queryItems
+        }
+        
+        let url = urlComponents.url!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30.0
+        
+        print("📡 getGreenhouseOverdueReports: Запрос отчетов о просрочках для теплицы \(greenhouseId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getGreenhouseOverdueReports: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📡 getGreenhouseOverdueReports: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            // OverdueReportOut использует snake_case поля, поэтому keyDecodingStrategy не нужен
+            do {
+                let reports = try decoder.decode([OverdueReportOut].self, from: data)
+                print("✅ getGreenhouseOverdueReports: Получено \(reports.count) отчетов о просрочках")
+                return reports
+            } catch {
+                print("❌ getGreenhouseOverdueReports: Ошибка декодирования: \(error)")
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("❌ getGreenhouseOverdueReports: Ответ сервера: \(responseString.prefix(500))")
+                }
+                throw APIError(detail: "Ошибка декодирования данных: \(error.localizedDescription)")
+            }
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getGreenhouseOverdueReports: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ getGreenhouseOverdueReports: Ошибка 404 - Теплица не найдена")
+            throw APIError(detail: "Теплица не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getGreenhouseOverdueReports: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
     /// Получить список работников, привязанных к теплице
     func getGreenhouseWorkers(greenhouseId: String) async throws -> [UserOut] {
         guard let token = AuthManager.shared.accessToken else {
