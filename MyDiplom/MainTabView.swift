@@ -32,6 +32,10 @@ struct MainTabView: View {
             
             // Справочник
             PlantsView()
+                .environmentObject(bleManager)
+                .environmentObject(sensorDataManager)
+                .environmentObject(wateringDataManager)
+                .environmentObject(fertilizingDataManager)
                 .tabItem {
                     Label("Справочник", systemImage: "leaf")
                 }

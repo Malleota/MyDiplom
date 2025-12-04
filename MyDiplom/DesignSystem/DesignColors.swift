@@ -25,4 +25,35 @@ enum DesignColor {
     static let myYellow = Color("MyYellow")
 }
 
+// MARK: - Card Shadow Modifier
+extension View {
+    /// Применяет стандартную тень для карточек, видимую в светлой и темной теме
+    func cardShadow() -> some View {
+        self.modifier(CardShadowModifier())
+    }
+    
+    /// Применяет стандартный бордер для карточек
+    func cardBorder() -> some View {
+        self.overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.gray.opacity(0.1), lineWidth: 1.0)
+        )
+    }
+}
+
+struct CardShadowModifier: ViewModifier {
+    @Environment(\.colorScheme) var colorScheme
+    
+    func body(content: Content) -> some View {
+        content.shadow(
+            color: colorScheme == .dark 
+                ? Color.white.opacity(0.1) 
+                : Color.black.opacity(0.1),
+            radius: 4,
+            x: 0,
+            y: 2
+        )
+    }
+}
+
 

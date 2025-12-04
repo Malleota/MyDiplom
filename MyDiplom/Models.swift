@@ -43,6 +43,10 @@ struct UserOut: Codable, Identifiable {
     let created_at: String
 }
 
+struct UserRoleUpdate: Codable {
+    let role: String  // "worker" или "admin"
+}
+
 // MARK: - Avatar Models
 
 struct AvatarOut: Codable, Identifiable {
@@ -143,6 +147,19 @@ struct WaterEventOut: Codable, Identifiable {
     let comment: String?
 }
 
+struct OverdueReportOut: Codable, Identifiable {
+    let id: String
+    let greenhouse_id: String
+    let greenhouse_name: String?
+    let plant_instance_id: String?
+    let plant_type_id: String?
+    let plant_name: String?
+    let report_type: String  // "watering_overdue" или "fertilizing_overdue"
+    let days_overdue: Int  // Количество дней просрочки
+    let created_at: String
+    let resolved_at: String?  // Дата разрешения просрочки (если разрешена)
+}
+
 struct NextWateringOut: Codable {
     let greenhouse_id: String
     let plant_instance_id: String?
@@ -161,6 +178,30 @@ struct WaterEventCreate: Codable {
 }
 
 // MARK: - Plant Models
+
+struct PlantTypeCreate: Codable {
+    let name: String
+    let description: String?
+    let image_url: String?
+    let temp_min: Double?
+    let temp_max: Double?
+    let humidity_min: Double?
+    let humidity_max: Double?
+    let watering_interval_days: Int?
+    let fertilizing_interval_days: Int?
+}
+
+struct PlantTypeUpdate: Codable {
+    let name: String?
+    let description: String?
+    let image_url: String?
+    let temp_min: Double?
+    let temp_max: Double?
+    let humidity_min: Double?
+    let humidity_max: Double?
+    let watering_interval_days: Int?
+    let fertilizing_interval_days: Int?
+}
 
 struct PlantTypeOut: Codable, Identifiable {
     let id: String
@@ -195,5 +236,12 @@ struct PlantInstanceUpdate: Codable {
 
 struct BindWorkerIn: Codable {
     let user_id: String
+}
+
+// MARK: - Image Upload Models
+
+struct PlantImageUploadResponse: Codable {
+    let image_url: String
+    let filename: String
 }
 

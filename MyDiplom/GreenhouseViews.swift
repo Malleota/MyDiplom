@@ -24,6 +24,11 @@ struct GreenhouseListView: View {
     @State private var showCreateGreenhouse = false
     @State private var showEditGreenhouse = false
     @State private var selectedGreenhouseForEdit: GreenhouseOut? = nil
+    @State private var selectedGreenhouseForDelete: GreenhouseOut? = nil
+    @State private var showDeleteAlert = false
+    @State private var isDeleting = false
+    @State private var showDeleteErrorAlert = false
+    @State private var deleteErrorMessage: String? = nil
     
     private var shouldShowCreateButton: Bool {
         AuthManager.shared.currentUser?.role != "worker"
@@ -76,6 +81,13 @@ struct GreenhouseListView: View {
                                         }) {
                                             Label("Редактировать", systemImage: "pencil")
                                         }
+                                        
+                                        Button(role: .destructive, action: {
+                                            selectedGreenhouseForDelete = greenhouse
+                                            showDeleteAlert = true
+                                        }) {
+                                            Label("Удалить", systemImage: "trash")
+                                        }
                                     }
                                 }
                             }
@@ -107,6 +119,28 @@ struct GreenhouseListView: View {
             .onChange(of: showEditGreenhouse) { isPresented in
                 if !isPresented {
                     selectedGreenhouseForEdit = nil
+                }
+            }
+            .alert("Вы уверены что хотите удалить", isPresented: $showDeleteAlert) {
+                Button("Удалить", role: .destructive) {
+                    if let greenhouse = selectedGreenhouseForDelete {
+                        Task {
+                            await deleteGreenhouse(greenhouse)
+                        }
+                    }
+                }
+                Button("Отмена", role: .cancel) {
+                    selectedGreenhouseForDelete = nil
+                }
+            }
+            .alert("Ошибка", isPresented: $showDeleteErrorAlert) {
+                Button("OK") {
+                    deleteErrorMessage = nil
+                    showDeleteErrorAlert = false
+                }
+            } message: {
+                if let errorMessage = deleteErrorMessage {
+                    Text(errorMessage)
                 }
             }
             .task {
@@ -206,6 +240,50 @@ struct GreenhouseListView: View {
             isScreenRegistered = false
         }
     }
+    
+    private func deleteGreenhouse(_ greenhouse: GreenhouseOut) async {
+        await MainActor.run {
+            isDeleting = true
+            deleteErrorMessage = nil
+        }
+        
+        do {
+            try await APIService.shared.deleteGreenhouse(id: greenhouse.id)
+            print("✅ Теплица \(greenhouse.name) успешно удалена")
+            
+            // Очищаем данные для удаленной теплицы
+            await MainActor.run {
+                sensorDataManager.clearSensorData(greenhouseId: greenhouse.id)
+                wateringDataManager.clearData(greenhouseId: greenhouse.id)
+                fertilizingDataManager.clearData(greenhouseId: greenhouse.id)
+            }
+            
+            // Удаляем сохраненное соответствие BLE, если есть
+            UserDefaults.standard.removeObject(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+            
+            // Обновляем список теплиц
+            await viewModel.loadGreenhouses(bleManager: bleManager, forceReload: true)
+            
+            // Отправляем уведомление об обновлении
+            NotificationCenter.default.post(name: NSNotification.Name("GreenhouseUpdated"), object: nil)
+            
+            await MainActor.run {
+                isDeleting = false
+                selectedGreenhouseForDelete = nil
+            }
+        } catch {
+            print("❌ Ошибка удаления теплицы: \(error)")
+            await MainActor.run {
+                isDeleting = false
+                if let apiError = error as? APIError {
+                    deleteErrorMessage = apiError.detail
+                } else {
+                    deleteErrorMessage = "Ошибка удаления: \(error.localizedDescription)"
+                }
+                showDeleteErrorAlert = true
+            }
+        }
+    }
 }
 
 // MARK: - Greenhouse Image View (Reusable Component)
@@ -303,6 +381,77 @@ struct GreenhouseSimpleCardView: View {
     }
 }
 
+// MARK: - Expandable Description View
+struct ExpandableDescriptionView: View {
+    let description: String
+    @State private var isExpanded = false
+    private let maxLines = 2
+    
+    var body: some View {
+        if shouldShowButton {
+            if isExpanded {
+                // Развернутое состояние
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(description)
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                    
+                    Button(action: {
+                        withAnimation {
+                            isExpanded.toggle()
+                        }
+                    }) {
+                        Text("Свернуть")
+                            .font(.callout)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 4)
+                }
+            } else {
+                // Свернутое состояние - кнопка на последней строке после многоточия
+                // Используем HStack с выравниванием по верху, чтобы кнопка была на последней строке
+                HStack(alignment: .lastTextBaseline, spacing: 4) {
+                    Text(description)
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(maxLines)
+                    
+                    // Кнопка после текста
+                    Button(action: {
+                        withAnimation {
+                            isExpanded.toggle()
+                        }
+                    }) {
+                        Text("Еще")
+                            .font(.callout)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        } else {
+            // Если кнопка не нужна, просто показываем текст
+            Text(description)
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.leading)
+        }
+    }
+    
+    private var shouldShowButton: Bool {
+        // Проверяем количество строк в тексте (по переносам строк)
+        let explicitLineCount = description.components(separatedBy: .newlines).count
+        
+        // Приблизительная оценка: если текст длинный (больше ~120 символов для 3 строк по ~40 символов)
+        // или явно больше 3 строк, показываем кнопку
+        let estimatedCharsPerLine = 40
+        let estimatedLines = description.count / estimatedCharsPerLine + (description.count % estimatedCharsPerLine > 0 ? 1 : 0)
+        
+        return explicitLineCount > maxLines || estimatedLines > maxLines || description.count > 120
+    }
+}
+
 // MARK: - Greenhouse Card View
 
 struct GreenhouseCardView: View {
@@ -330,7 +479,7 @@ struct GreenhouseCardView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
                         // Датчик подключен - показываем данные или "--"
-                        HStack(spacing: 4) {
+                        HStack(spacing: 8) {
                             Image(systemName: "sensor")
                                 .foregroundColor(DesignColor.myDarkBlue.opacity(0.8))
                                 .font(.subheadline)
@@ -344,6 +493,10 @@ struct GreenhouseCardView: View {
                                     .foregroundColor(DesignColor.myDarkBlue.opacity(0.8))
                             }
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(DesignColor.myDarkBlue.opacity(0.1))
+                        .cornerRadius(40)
                     }
                     
                     // Время до следующего полива
@@ -427,7 +580,8 @@ struct GreenhouseCardView: View {
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+        .cardBorder()
+        .cardShadow()
     }
 }
 
@@ -1901,6 +2055,7 @@ struct PlantSelectionRow: View {
         .padding()
         .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
+        .cardBorder()
         .onAppear {
             quantityText = String(plant.quantity)
         }
@@ -2048,10 +2203,7 @@ struct ExistingPlantRow: View {
         .padding()
         .background(DesignColor.Background.primary)
         .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(DesignColor.Fills.tertiar, lineWidth: 1)
-        )
+        .cardBorder()
         .onAppear {
             quantityText = String(currentQuantity)
         }
@@ -2174,7 +2326,7 @@ struct PlantPickerView: View {
                                 RoundedRectangle(cornerRadius: 12)
                                     .stroke(selectedPlantTypeId == plantType.id ? DesignColor.mainAccent : Color.clear, lineWidth: 2)
                             )
-                            .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+                            .cardShadow()
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
@@ -2216,28 +2368,30 @@ struct WorkerSelectionRow: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         case .failure:
-                            Circle()
+                            RoundedRectangle(cornerRadius: 10)
                                 .fill(Color.gray.opacity(0.3))
                                 .frame(width: 50, height: 50)
                                 .overlay(
                                     Image(systemName: "person.fill")
                                         .foregroundColor(.gray)
+                                        .font(.system(size: 20))
                                 )
                         @unknown default:
-                            Circle()
+                            RoundedRectangle(cornerRadius: 10)
                                 .fill(Color.gray.opacity(0.3))
                                 .frame(width: 50, height: 50)
                         }
                     }
                     .frame(width: 50, height: 50)
-                    .clipShape(Circle())
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 } else {
-                    Circle()
+                    RoundedRectangle(cornerRadius: 10)
                         .fill(Color.gray.opacity(0.3))
                         .frame(width: 50, height: 50)
                         .overlay(
                             Image(systemName: "person.fill")
                                 .foregroundColor(.gray)
+                                .font(.system(size: 20))
                         )
                 }
                 
@@ -2266,7 +2420,7 @@ struct WorkerSelectionRow: View {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(isSelected ? DesignColor.mainAccent : Color.clear, lineWidth: 2)
             )
-            .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+            .cardShadow()
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -2332,11 +2486,8 @@ struct WorkerRow: View {
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
-        )
-        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+        .cardBorder()
+        .cardShadow()
     }
 }
 
@@ -2346,6 +2497,12 @@ struct ReportRowView: View {
     let event: WaterEventOut
     let userName: String
     let plantTypeName: String
+    let userId: String
+    let user: UserOut?
+    @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     
     private var actionType: String {
         event.type == "watering" ? "Полив" : "Удобрение"
@@ -2423,7 +2580,7 @@ struct ReportRowView: View {
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(dateString)
-                    .font(.subheadline)
+                    .font(.caption)
                     .foregroundColor(.primary)
                 
                 Text(timeString)
@@ -2432,12 +2589,170 @@ struct ReportRowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             
-            Text(userName)
+            // Имя пользователя с навигацией к профилю
+            if let user = user {
+                NavigationLink(destination: WorkerProfileView(user: user)
+                    .environmentObject(bleManager)
+                    .environmentObject(sensorDataManager)
+                    .environmentObject(wateringDataManager)
+                    .environmentObject(fertilizingDataManager)) {
+                    Text(userName)
+                        .font(.subheadline)
+                        .foregroundColor(DesignColor.myBlue)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(PlainButtonStyle())
+            } else {
+                Text(userName)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            
+            Text(plantTypeName)
                 .font(.subheadline)
                 .foregroundColor(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .background(Color(.systemBackground))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(Color(.separator)),
+            alignment: .bottom
+        )
+    }
+}
+
+// MARK: - Overdue Report Row View
+
+struct OverdueReportRowView: View {
+    let report: OverdueReportOut
+    
+    private var reportTypeIcon: String {
+        if report.report_type == "watering_overdue" {
+            return "drop"
+        } else if report.report_type == "fertilizing_overdue" {
+            return "pills"
+        } else {
+            return "exclamationmark.triangle"
+        }
+    }
+    
+    private var reportTypeName: String {
+        return "Просрочка"
+    }
+    
+    private var dateString: String {
+        guard let date = parseDate(report.created_at) else {
+            return report.created_at
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd.MM.yyyy"
+        return formatter.string(from: date)
+    }
+    
+    private var timeString: String {
+        guard let date = parseDate(report.created_at) else {
+            return ""
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+    
+    private var statusString: String {
+        let daysText = "\(report.days_overdue) дней"
+        if report.resolved_at != nil {
+            return "Решено: \(daysText)"
+        } else {
+            return "\(daysText)"
+        }
+    }
+    
+    private func parseDate(_ dateString: String) -> Date? {
+        // Пробуем ISO8601 форматы
+        var isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = isoFormatter.date(from: dateString) { return date }
+        
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        if let date = isoFormatter.date(from: dateString) { return date }
+        
+        // Исправляем неполный формат "2025-11-25T2"
+        if dateString.contains("T") {
+            let parts = dateString.split(separator: "T")
+            guard parts.count == 2 else { return nil }
             
-            Text(plantTypeName)
+            let datePart = String(parts[0])
+            var timePart = String(parts[1]).replacingOccurrences(of: "Z", with: "")
+            
+            // Удаляем дробные секунды, если есть
+            if let dotIndex = timePart.firstIndex(of: ".") {
+                timePart = String(timePart[..<dotIndex])
+            }
+            
+            // Исправляем неполное время
+            if !timePart.contains(":") {
+                timePart = timePart.count == 1 ? "0\(timePart):00:00" : "\(timePart):00:00"
+            } else {
+                let components = timePart.split(separator: ":")
+                if components.count == 2 {
+                    timePart = "\(timePart):00"
+                }
+            }
+            
+            // Парсим исправленную строку через DateFormatter
+            let fixed = "\(datePart)T\(timePart)"
+            let parser = DateFormatter()
+            parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+            parser.locale = Locale(identifier: "en_US_POSIX")
+            return parser.date(from: fixed)
+        }
+        
+        return nil
+    }
+    
+    private var isResolved: Bool {
+        if let resolvedAt = report.resolved_at {
+            return !resolvedAt.isEmpty
+        }
+        return false
+    }
+    //Верстка таблицы отчетов 
+    var body: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(reportTypeName)
+                    .font(.footnote)
+                    .foregroundColor(DesignColor.mainRed.opacity(0.8))
+                Image(systemName: reportTypeIcon)
+                    .font(.footnote)
+                    .foregroundColor(DesignColor.mainRed.opacity(0.8))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dateString)
+                    .font(.caption)
+                    .foregroundColor(.primary)
+                
+                Text(timeString)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            Text(statusString)
+                .font(.caption)
+                .foregroundColor(DesignColor.mainRed.opacity(0.8))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            Text(report.plant_name ?? "—")
                 .font(.subheadline)
                 .foregroundColor(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2486,6 +2801,7 @@ struct GreenhouseDetailView: View {
     @State private var isLoadingWorkers = false
     @State private var wateringEvents: [WaterEventOut] = []
     @State private var fertilizingEvents: [WaterEventOut] = []
+    @State private var overdueReports: [OverdueReportOut] = []
     @State private var isLoadingReports = false
     
     // Проверяем, является ли пользователь рабочим
@@ -2508,6 +2824,52 @@ struct GreenhouseDetailView: View {
         return uniqueEvents.sorted { event1, event2 in
             // Сортируем по дате создания (новые сверху)
             return event1.created_at > event2.created_at
+        }
+    }
+    
+    // Enum для объединения событий и отчетов
+    enum ReportItem: Identifiable {
+        case event(WaterEventOut)
+        case report(OverdueReportOut)
+        
+        var id: String {
+            switch self {
+            case .event(let event):
+                return "event_\(event.id)"
+            case .report(let report):
+                return "report_\(report.id)"
+            }
+        }
+        
+        var createdAt: String {
+            switch self {
+            case .event(let event):
+                return event.created_at
+            case .report(let report):
+                return report.created_at
+            }
+        }
+    }
+    
+    // Объединенный список событий и отчетов о просрочках для отображения
+    private var allReportItems: [ReportItem] {
+        var items: [ReportItem] = []
+        
+        // Добавляем события
+        for event in allReportEvents {
+            items.append(.event(event))
+        }
+        
+        // Добавляем отчеты о просрочках
+        for report in overdueReports {
+            items.append(.report(report))
+        }
+        
+        // Сортируем по дате создания (новые сверху)
+        return items.sorted { item1, item2 in
+            let date1 = item1.createdAt
+            let date2 = item2.createdAt
+            return date1 > date2
         }
     }
     
@@ -2541,37 +2903,78 @@ struct GreenhouseDetailView: View {
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(sortedPlantInstances) { plantInstance in
-                        PlantCardView(
-                            greenhouseId: greenhouseId,
-                            plantInstance: plantInstance,
-                            plantType: plantTypes[plantInstance.plant_type_id],
-                            nextWatering: plantWaterings[plantInstance.id],
-                            nextFertilizing: plantFertilizings[plantInstance.id],
-                            onWateringComplete: {
-                                // Обновляем данные о поливе после полива
-                                Task {
-                                    // Ждем немного, чтобы сервер успел пересчитать данные
-                                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда
-                                    
-                                    // Обновляем данные о растениях и поливах
-                                    await loadPlants()
-                                    
-                                    // Делаем еще одну попытку обновления через небольшую задержку
-                                    // на случай, если сервер еще не успел пересчитать
-                                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
-                                    await loadPlants()
-                                    
-                                    // Обновляем данные о поливе для теплицы (для карточки в списке)
-                                    // Загружаем greenhouse для обновления данных о поливе
-                                    do {
-                                        let gh = try await APIService.shared.getGreenhouse(id: greenhouseId)
-                                        await wateringDataManager.loadNextWateringForGreenhouse(gh)
-                                    } catch {
-                                        print("❌ Ошибка загрузки теплицы для обновления данных о поливе: \(error)")
+                        if let plantType = plantTypes[plantInstance.plant_type_id] {
+                            NavigationLink(destination: PlantDetailView(plantType: plantType)
+                                .environmentObject(bleManager)
+                                .environmentObject(sensorDataManager)
+                                .environmentObject(wateringDataManager)
+                                .environmentObject(fertilizingDataManager)) {
+                                PlantCardView(
+                                    greenhouseId: greenhouseId,
+                                    plantInstance: plantInstance,
+                                    plantType: plantType,
+                                    nextWatering: plantWaterings[plantInstance.id],
+                                    nextFertilizing: plantFertilizings[plantInstance.id],
+                                    onWateringComplete: {
+                                        // Обновляем данные о поливе после полива
+                                        Task {
+                                            // Ждем немного, чтобы сервер успел пересчитать данные
+                                            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда
+                                            
+                                            // Обновляем данные о растениях и поливах
+                                            await loadPlants()
+                                            
+                                            // Делаем еще одну попытку обновления через небольшую задержку
+                                            // на случай, если сервер еще не успел пересчитать
+                                            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+                                            await loadPlants()
+                                            
+                                            // Обновляем данные о поливе для теплицы (для карточки в списке)
+                                            // Загружаем greenhouse для обновления данных о поливе
+                                            do {
+                                                let gh = try await APIService.shared.getGreenhouse(id: greenhouseId)
+                                                await wateringDataManager.loadNextWateringForGreenhouse(gh)
+                                            } catch {
+                                                print("❌ Ошибка загрузки теплицы для обновления данных о поливе: \(error)")
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        } else {
+                            PlantCardView(
+                                greenhouseId: greenhouseId,
+                                plantInstance: plantInstance,
+                                plantType: nil,
+                                nextWatering: plantWaterings[plantInstance.id],
+                                nextFertilizing: plantFertilizings[plantInstance.id],
+                                onWateringComplete: {
+                                    // Обновляем данные о поливе после полива
+                                    Task {
+                                        // Ждем немного, чтобы сервер успел пересчитать данные
+                                        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда
+                                        
+                                        // Обновляем данные о растениях и поливах
+                                        await loadPlants()
+                                        
+                                        // Делаем еще одну попытку обновления через небольшую задержку
+                                        // на случай, если сервер еще не успел пересчитать
+                                        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+                                        await loadPlants()
+                                        
+                                        // Обновляем данные о поливе для теплицы (для карточки в списке)
+                                        // Загружаем greenhouse для обновления данных о поливе
+                                        do {
+                                            let gh = try await APIService.shared.getGreenhouse(id: greenhouseId)
+                                            await wateringDataManager.loadNextWateringForGreenhouse(gh)
+                                        } catch {
+                                            print("❌ Ошибка загрузки теплицы для обновления данных о поливе: \(error)")
+                                        }
                                     }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
                 .padding(.horizontal)
@@ -2618,9 +3021,10 @@ struct GreenhouseDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding()
             } else {
-                let allEvents = allReportEvents
+                // Отладочная информация
+                let _ = print("📊 reportsTabContent: isLoadingReports=\(isLoadingReports), events=\(wateringEvents.count)+\(fertilizingEvents.count), reports=\(overdueReports.count), allItems=\(allReportItems.count)")
                 
-                if allEvents.isEmpty {
+                if allReportItems.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "doc.text.fill")
                             .font(.system(size: 40))
@@ -2628,6 +3032,10 @@ struct GreenhouseDetailView: View {
                         Text("Нет данных")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+                        Text("События: \(wateringEvents.count) полив, \(fertilizingEvents.count) удобрение\nОтчёты: \(overdueReports.count)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 32)
@@ -2636,7 +3044,7 @@ struct GreenhouseDetailView: View {
                         VStack(spacing: 0) {
                             // Заголовок таблицы
                             HStack(spacing: 0) {
-                                Text("Тип действия")
+                                Text("Тип")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
@@ -2648,7 +3056,7 @@ struct GreenhouseDetailView: View {
                                     .foregroundColor(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 
-                                Text("Кто выполнил")
+                                Text("Детали")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
@@ -2665,12 +3073,23 @@ struct GreenhouseDetailView: View {
                             .background(Color(.secondarySystemBackground))
                             
                             // Строки таблицы
-                            ForEach(allEvents) { event in
+                            ForEach(allReportItems) { item in
+                                switch item {
+                                case .event(let event):
                                 ReportRowView(
                                     event: event,
                                     userName: getUserName(userId: event.user_id),
-                                    plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id)
+                                    plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id),
+                                    userId: event.user_id,
+                                    user: getUser(userId: event.user_id)
                                 )
+                                .environmentObject(bleManager)
+                                .environmentObject(sensorDataManager)
+                                .environmentObject(wateringDataManager)
+                                .environmentObject(fertilizingDataManager)
+                                case .report(let report):
+                                    OverdueReportRowView(report: report)
+                                }
                             }
                         }
                     }
@@ -2692,6 +3111,19 @@ struct GreenhouseDetailView: View {
         }
         // Если не найдено, возвращаем "Неизвестно"
         return "Неизвестно"
+    }
+    
+    private func getUser(userId: String) -> UserOut? {
+        // Ищем в списке работников
+        if let worker = workers.first(where: { $0.id == userId }) {
+            return worker
+        }
+        // Если это текущий пользователь
+        if let currentUser = AuthManager.shared.currentUser, currentUser.id == userId {
+            return currentUser
+        }
+        // Если не найдено, возвращаем nil
+        return nil
     }
     
     private func getPlantTypeName(plantInstanceId: String?) -> String {
@@ -2786,11 +3218,8 @@ struct GreenhouseDetailView: View {
                                         .font(.title)
                                         .fontWeight(.bold)
                                     
-                                    if let description = greenhouse.description {
-                                        Text(description)
-                                            .font(.callout)
-                                            .foregroundColor(.secondary)
-                                            .lineLimit(2)
+                                    if let description = greenhouse.description, !description.isEmpty {
+                                        ExpandableDescriptionView(description: description)
                                             .padding(.top, 8)
                                     }
                                 }
@@ -3015,6 +3444,10 @@ struct GreenhouseDetailView: View {
             if isWorker && selectedTab == .reports {
                 selectedTab = .plants
             }
+            // Загружаем отчеты, если вкладка отчетов доступна и выбрана
+            if !isWorker && selectedTab == .reports {
+                await loadReports()
+            }
         }
         .onChange(of: selectedTab) { newTab in
             if newTab == .reports {
@@ -3166,26 +3599,71 @@ struct GreenhouseDetailView: View {
     }
     
     private func loadReports() async {
+        print("📊 loadReports: Начало загрузки отчетов для теплицы \(greenhouseId)")
+        
+        // Логируем роль пользователя
+        if let currentUser = AuthManager.shared.currentUser {
+            print("📊 loadReports: Пользователь: \(currentUser.name), роль: \(currentUser.role), id: \(currentUser.id)")
+        }
+        
         isLoadingReports = true
         defer { isLoadingReports = false }
         
         do {
             // Загружаем события полива
+            print("📊 loadReports: Загрузка событий полива...")
             let watering = try await APIService.shared.getWateringEvents(greenhouseId: greenhouseId)
+            print("📊 loadReports: Загружено \(watering.count) событий полива")
             
             // Загружаем события удобрения
+            print("📊 loadReports: Загрузка событий удобрения...")
             let fertilizing = try await APIService.shared.getFertilizingEvents(greenhouseId: greenhouseId)
+            print("📊 loadReports: Загружено \(fertilizing.count) событий удобрения")
+            
+            // Загружаем отчеты о просрочках
+            print("📊 loadReports: Загрузка отчетов о просрочках для greenhouseId=\(greenhouseId)...")
+            
+            // Загружаем отчёты с фильтром по текущей теплице
+            var reports = try await APIService.shared.getOverdueReports(greenhouseId: greenhouseId, resolved: nil)
+            print("📊 loadReports: Загружено \(reports.count) отчётов для теплицы \(greenhouseId)")
+            
+            // Если для текущей теплицы нет отчётов, загружаем все доступные отчёты
+            // (пользователь может хотеть видеть отчёты для других теплиц)
+            if reports.isEmpty {
+                print("📊 loadReports: Для текущей теплицы отчётов нет, загружаем все доступные отчёты...")
+                let allReports = try await APIService.shared.getOverdueReports(greenhouseId: nil, resolved: nil)
+                print("📊 loadReports: Всего доступных отчётов: \(allReports.count)")
+                reports = allReports
+                
+                // Логируем все отчёты для диагностики
+                for report in allReports {
+                    print("📊 loadReports: Доступный отчёт - id=\(report.id), greenhouse_id=\(report.greenhouse_id), name=\(report.greenhouse_name ?? "nil"), type=\(report.report_type)")
+                }
+            }
+            
+            // Логируем загруженные отчёты
+            print("📊 loadReports: Итого загружено \(reports.count) отчётов для отображения")
+            for report in reports {
+                print("📊 loadReports: Отчёт - id=\(report.id), greenhouse_id=\(report.greenhouse_id), name=\(report.greenhouse_name ?? "nil"), type=\(report.report_type), days_overdue=\(report.days_overdue)")
+            }
             
             await MainActor.run {
                 wateringEvents = watering
                 fertilizingEvents = fertilizing
+                overdueReports = reports
+                print("📊 loadReports: Данные обновлены в UI. Всего элементов: \(allReportItems.count)")
             }
-            print("📊 loadReports: Загружено \(watering.count) событий полива и \(fertilizing.count) событий удобрения")
+            print("📊 loadReports: Загружено \(watering.count) событий полива, \(fertilizing.count) событий удобрения и \(reports.count) отчетов о просрочках")
         } catch {
             print("❌ Ошибка загрузки отчетов: \(error)")
+            if let apiError = error as? APIError {
+                print("❌ API Error detail: \(apiError.detail)")
+            }
             await MainActor.run {
                 wateringEvents = []
                 fertilizingEvents = []
+                overdueReports = []
+                print("📊 loadReports: Данные очищены из-за ошибки")
             }
         }
     }
@@ -3517,10 +3995,10 @@ struct SensorDataCard: View {
  
             HStack(alignment: .top, spacing: 2) {
                     Text(value)
-                        .font(.title2)
+                        .font(.title3)
                         .fontWeight(.semibold)
                     Text(unit)
-                        .font(.title2)
+                        .font(.title3)
                         .fontWeight(.semibold)
             }
             //.padding(.leading,8)
@@ -3809,7 +4287,8 @@ struct PlantCardView: View {
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+        .cardBorder()
+        .cardShadow()
         .contextMenu {
             if isAdmin {
                 Button(action: {

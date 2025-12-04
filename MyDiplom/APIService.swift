@@ -424,6 +424,41 @@ class APIService {
         }
     }
     
+    /// Удалить теплицу
+    func deleteGreenhouse(id: String) async throws {
+        guard let token = AuthManager.shared.accessToken else {
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/greenhouses/\(id)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        if httpResponse.statusCode == 204 {
+            print("✅ Теплица \(id) успешно удалена")
+            return
+        } else if httpResponse.statusCode == 401 {
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            throw APIError(detail: "Доступ запрещен. Только администратор может удалять теплицы")
+        } else if httpResponse.statusCode == 404 {
+            throw APIError(detail: "Теплица не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
+    
     /// Получить текущие данные датчика для теплицы
     func getCurrentSensorData(greenhouseId: String) async throws -> SensorReadingOut? {
         guard let token = AuthManager.shared.accessToken else {
@@ -1023,6 +1058,63 @@ class APIService {
         }
     }
     
+    /// Обновить роль пользователя (доступно только для админа)
+    func updateUserRole(userId: String, role: String) async throws -> UserOut {
+        guard let token = AuthManager.shared.accessToken else {
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        // Проверяем, является ли пользователь админом
+        guard let currentUser = AuthManager.shared.currentUser, currentUser.role == "admin" else {
+            print("⚠️ updateUserRole: Доступ запрещен - требуется роль admin")
+            throw APIError(detail: "Доступ запрещен. Требуется роль администратора")
+        }
+        
+        let url = URL(string: "\(baseURL)/users/\(userId)/role")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let payload = UserRoleUpdate(role: role)
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(payload)
+        
+        print("👥 updateUserRole: Обновление роли пользователя \(userId) на \(role)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("👥 updateUserRole: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let updatedUser = try decoder.decode(UserOut.self, from: data)
+            print("✅ updateUserRole: Роль пользователя успешно обновлена")
+            return updatedUser
+        } else if httpResponse.statusCode == 401 {
+            print("❌ updateUserRole: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ updateUserRole: Ошибка 403 - Доступ запрещен (требуется роль admin)")
+            throw APIError(detail: "Доступ запрещен. Требуется роль администратора")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ updateUserRole: Ошибка 404 - Пользователь не найден")
+            throw APIError(detail: "Пользователь не найден")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ updateUserRole: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            print("❌ updateUserRole: Ошибка сервера (код \(httpResponse.statusCode))")
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
+    
     /// Получить список всех рабочих (пользователей с ролью worker)
     /// Использует endpoint /users (доступен только для админа) и фильтрует по роли worker
     func getWorkers() async throws -> [UserOut] {
@@ -1113,6 +1205,246 @@ class APIService {
             if let error = try? decoder.decode(APIError.self, from: data) {
                 print("❌ getPlantTypes: Ошибка \(httpResponse.statusCode) - \(error.detail)")
                 throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Создать новый тип растения в справочнике
+    func createPlantType(_ plant: PlantTypeCreate) async throws -> PlantTypeOut {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ createPlantType: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/plant-types")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try encoder.encode(plant)
+        
+        print("🌿 createPlantType: Создание нового типа растения")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ createPlantType: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🌿 createPlantType: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 201 {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let plantType = try decoder.decode(PlantTypeOut.self, from: data)
+            print("✅ createPlantType: Тип растения успешно создан")
+            return plantType
+        } else if httpResponse.statusCode == 401 {
+            print("❌ createPlantType: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ createPlantType: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Требуются права администратора")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ createPlantType: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Обновить тип растения в справочнике
+    func updatePlantType(plantTypeId: String, update: PlantTypeUpdate) async throws -> PlantTypeOut {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ updatePlantType: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/plant-types/\(plantTypeId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try encoder.encode(update)
+        
+        print("🌿 updatePlantType: Обновление типа растения \(plantTypeId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ updatePlantType: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🌿 updatePlantType: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let plantType = try decoder.decode(PlantTypeOut.self, from: data)
+            print("✅ updatePlantType: Тип растения успешно обновлен")
+            return plantType
+        } else if httpResponse.statusCode == 401 {
+            print("❌ updatePlantType: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ updatePlantType: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Требуются права администратора")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ updatePlantType: Ошибка 404 - Тип растения не найден")
+            throw APIError(detail: "Тип растения не найден")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ updatePlantType: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Удалить тип растения из справочника
+    func deletePlantType(plantTypeId: String) async throws {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ deletePlantType: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/plant-types/\(plantTypeId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("🌿 deletePlantType: Удаление типа растения \(plantTypeId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ deletePlantType: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🌿 deletePlantType: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 204 {
+            print("✅ deletePlantType: Тип растения успешно удален")
+            return
+        } else if httpResponse.statusCode == 401 {
+            print("❌ deletePlantType: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ deletePlantType: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Требуются права администратора")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ deletePlantType: Ошибка 404 - Тип растения не найден")
+            throw APIError(detail: "Тип растения не найден")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ deletePlantType: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Загрузить изображение для растения
+    func uploadPlantImage(imageData: Data, filename: String) async throws -> PlantImageUploadResponse {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ uploadPlantImage: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/plant-types/upload-image")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        // Определяем MIME-тип на основе расширения файла
+        let contentType: String
+        let fileExtension = (filename as NSString).pathExtension.lowercased()
+        switch fileExtension {
+        case "jpg", "jpeg":
+            contentType = "image/jpeg"
+        case "png":
+            contentType = "image/png"
+        case "webp":
+            contentType = "image/webp"
+        default:
+            contentType = "image/jpeg"
+        }
+        
+        // Создаем multipart/form-data запрос
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var body = Data()
+        
+        // Добавляем файл
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = body
+        
+        print("📤 uploadPlantImage: Загрузка изображения \(filename), размер: \(imageData.count) байт, тип: \(contentType)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ uploadPlantImage: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📤 uploadPlantImage: Статус ответа = \(httpResponse.statusCode)")
+        
+        // Логируем ответ для отладки
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("📤 uploadPlantImage: Ответ сервера: \(responseString.prefix(500))")
+        }
+        
+        if httpResponse.statusCode == 200 {
+            do {
+                let decoder = JSONDecoder()
+                // Не используем convertFromSnakeCase, так как модель уже использует snake_case
+                let uploadResponse = try decoder.decode(PlantImageUploadResponse.self, from: data)
+                print("✅ uploadPlantImage: Изображение успешно загружено: \(uploadResponse.image_url)")
+                return uploadResponse
+            } catch {
+                print("❌ uploadPlantImage: Ошибка декодирования ответа: \(error)")
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("❌ uploadPlantImage: Полный ответ: \(responseString)")
+                }
+                throw APIError(detail: "Не удалось обработать ответ сервера: \(error.localizedDescription)")
+            }
+        } else if httpResponse.statusCode == 401 {
+            print("❌ uploadPlantImage: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ uploadPlantImage: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен. Требуются права администратора")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ uploadPlantImage: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("❌ uploadPlantImage: Ошибка сервера, ответ: \(responseString)")
+                throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode)): \(responseString)")
             }
             throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
         }
@@ -1412,6 +1744,164 @@ class APIService {
         
         print("✅ getWorkerGreenhouses: Найдено \(workerGreenhouses.count) теплиц для работника \(workerId)")
         return workerGreenhouses
+    }
+    
+    /// Получить список отчетов о просрочках
+    func getOverdueReports(greenhouseId: String? = nil, reportType: String? = nil, resolved: Bool? = nil) async throws -> [OverdueReportOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getOverdueReports: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        var urlComponents = URLComponents(string: "\(baseURL)/overdue-reports")!
+        var queryItems: [URLQueryItem] = []
+        
+        if let greenhouseId = greenhouseId {
+            queryItems.append(URLQueryItem(name: "greenhouse_id", value: greenhouseId))
+        }
+        if let reportType = reportType {
+            queryItems.append(URLQueryItem(name: "report_type", value: reportType))
+        }
+        if let resolved = resolved {
+            queryItems.append(URLQueryItem(name: "resolved", value: resolved ? "true" : "false"))
+        }
+        
+        if !queryItems.isEmpty {
+            urlComponents.queryItems = queryItems
+        }
+        
+        let url = urlComponents.url!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30.0
+        
+        print("📡 getOverdueReports: Запрос отчетов о просрочках")
+        print("📡 getOverdueReports: URL = \(url.absoluteString)")
+        print("📡 getOverdueReports: greenhouseId параметр = \(greenhouseId ?? "nil")")
+        print("📡 getOverdueReports: queryItems count = \(queryItems.count)")
+        for item in queryItems {
+            print("📡 getOverdueReports: queryItem - \(item.name) = \(item.value ?? "nil")")
+        }
+        if let resolved = resolved {
+            print("📡 getOverdueReports: Параметр resolved = \(resolved)")
+        } else {
+            print("📡 getOverdueReports: Параметр resolved = nil (будут загружены все отчёты)")
+        }
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getOverdueReports: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📡 getOverdueReports: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            // OverdueReportOut использует snake_case поля, поэтому keyDecodingStrategy не нужен
+            do {
+                let reports = try decoder.decode([OverdueReportOut].self, from: data)
+                print("✅ getOverdueReports: Получено \(reports.count) отчетов о просрочках")
+                
+                // Логируем ответ сервера для отладки
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("📡 getOverdueReports: Ответ сервера: \(responseString)")
+                }
+                
+                // Логируем каждый отчёт
+                for report in reports {
+                    print("📊 Отчёт: id=\(report.id), greenhouse_id=\(report.greenhouse_id), report_type=\(report.report_type), days_overdue=\(report.days_overdue)")
+                }
+                
+                return reports
+            } catch {
+                print("❌ getOverdueReports: Ошибка декодирования: \(error)")
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("❌ getOverdueReports: Ответ сервера: \(responseString.prefix(500))")
+                }
+                throw APIError(detail: "Ошибка декодирования данных: \(error.localizedDescription)")
+            }
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getOverdueReports: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getOverdueReports: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Получить отчеты о просрочках для конкретной теплицы
+    func getGreenhouseOverdueReports(greenhouseId: String, reportType: String? = nil, resolved: Bool? = nil) async throws -> [OverdueReportOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getGreenhouseOverdueReports: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        var urlComponents = URLComponents(string: "\(baseURL)/greenhouses/\(greenhouseId)/overdue-reports")!
+        var queryItems: [URLQueryItem] = []
+        
+        if let reportType = reportType {
+            queryItems.append(URLQueryItem(name: "report_type", value: reportType))
+        }
+        if let resolved = resolved {
+            queryItems.append(URLQueryItem(name: "resolved", value: resolved ? "true" : "false"))
+        }
+        
+        if !queryItems.isEmpty {
+            urlComponents.queryItems = queryItems
+        }
+        
+        let url = urlComponents.url!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30.0
+        
+        print("📡 getGreenhouseOverdueReports: Запрос отчетов о просрочках для теплицы \(greenhouseId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getGreenhouseOverdueReports: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📡 getGreenhouseOverdueReports: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            // OverdueReportOut использует snake_case поля, поэтому keyDecodingStrategy не нужен
+            do {
+                let reports = try decoder.decode([OverdueReportOut].self, from: data)
+                print("✅ getGreenhouseOverdueReports: Получено \(reports.count) отчетов о просрочках")
+                return reports
+            } catch {
+                print("❌ getGreenhouseOverdueReports: Ошибка декодирования: \(error)")
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("❌ getGreenhouseOverdueReports: Ответ сервера: \(responseString.prefix(500))")
+                }
+                throw APIError(detail: "Ошибка декодирования данных: \(error.localizedDescription)")
+            }
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getGreenhouseOverdueReports: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ getGreenhouseOverdueReports: Ошибка 404 - Теплица не найдена")
+            throw APIError(detail: "Теплица не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getGreenhouseOverdueReports: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
     }
     
     /// Получить список работников, привязанных к теплице

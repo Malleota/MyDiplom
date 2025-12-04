@@ -99,6 +99,9 @@ struct WorkersView: View {
             .refreshable {
                 await loadUsersAsync()
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("UserRoleUpdated"))) { _ in
+                loadUsers()
+            }
         }
     }
     
@@ -149,28 +152,30 @@ struct UserRow: View {
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     case .failure:
-                        Circle()
+                        RoundedRectangle(cornerRadius: 10)
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 50, height: 50)
                             .overlay(
                                 Image(systemName: "person.fill")
                                     .foregroundColor(.gray)
+                                    .font(.system(size: 20))
                             )
                     @unknown default:
-                        Circle()
+                        RoundedRectangle(cornerRadius: 10)
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 50, height: 50)
                     }
                 }
                 .frame(width: 50, height: 50)
-                .clipShape(Circle())
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             } else {
-                Circle()
+                RoundedRectangle(cornerRadius: 10)
                     .fill(Color.gray.opacity(0.3))
                     .frame(width: 50, height: 50)
                     .overlay(
                         Image(systemName: "person.fill")
                             .foregroundColor(.gray)
+                            .font(.system(size: 20))
                     )
             }
             
@@ -214,11 +219,8 @@ struct UserRow: View {
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.gray.opacity(0.2), lineWidth: 1.0)
-        )
-        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        .cardBorder()
+        .cardShadow()
     }
 }
 

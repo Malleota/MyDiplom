@@ -13,6 +13,7 @@ struct WorkerProfileView: View {
     @EnvironmentObject var sensorDataManager: SensorDataManager
     @EnvironmentObject var wateringDataManager: WateringDataManager
     @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
+    @State private var currentUser: UserOut
     @State private var greenhouses: [GreenhouseOut] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -28,18 +29,38 @@ struct WorkerProfileView: View {
     @State private var isAddingGreenhouse = false
     @State private var greenhouseToRemove: GreenhouseOut?
     @State private var showRemoveAlert = false
+    @State private var isChangingRole = false
+    @State private var showChangeRoleAlert = false
+    
+    init(user: UserOut) {
+        self.user = user
+        _currentUser = State(initialValue: user)
+    }
     
     var isAdmin: Bool {
-        user.role == "admin"
+        currentUser.role == "admin"
     }
     
     var roleText: String {
-        user.role == "admin" ? "Администратор" : "Рабочий"
+        currentUser.role == "admin" ? "Администратор" : "Рабочий"
+    }
+    
+    var newRole: String {
+        currentUser.role == "admin" ? "worker" : "admin"
+    }
+    
+    var newRoleText: String {
+        currentUser.role == "admin" ? "Рабочий" : "Администратор"
     }
     
     // Проверяем, является ли текущий пользователь админом (для управления теплицами)
     var currentUserIsAdmin: Bool {
         AuthManager.shared.currentUser?.role == "admin"
+    }
+    
+    // Проверяем, является ли это текущий пользователь
+    var isCurrentUser: Bool {
+        AuthManager.shared.currentUser?.id == currentUser.id
     }
     
     var body: some View {
@@ -49,7 +70,7 @@ struct WorkerProfileView: View {
                 HStack(alignment: .top, spacing: 12) {
                     // Вертикальный контейнер с именем и должностью
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(user.name)
+                        Text(currentUser.name)
                             .font(.title)
                             .fontWeight(.bold)
                         
@@ -59,7 +80,7 @@ struct WorkerProfileView: View {
                             .padding(.top, 8)
                         
                         // Email
-                        Text(user.email)
+                        Text(currentUser.email)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.top, 4)
@@ -67,19 +88,19 @@ struct WorkerProfileView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     
                     // Аватарка справа
-                    if let avatarUrl = user.avatar_url, let url = URL(string: avatarUrl) {
+                    if let avatarUrl = currentUser.avatar_url, let url = URL(string: avatarUrl) {
                         AsyncImage(url: url) { image in
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         } placeholder: {
-                            Circle()
+                            RoundedRectangle(cornerRadius: 10)
                                 .fill(Color(.secondarySystemBackground))
                         }
                         .frame(width: 80, height: 80)
-                        .clipShape(Circle())
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                     } else {
-                        Circle()
+                        RoundedRectangle(cornerRadius: 10)
                             .fill(Color(.secondarySystemBackground))
                             .frame(width: 80, height: 80)
                             .overlay(
@@ -258,8 +279,13 @@ struct WorkerProfileView: View {
                                         WorkerReportRowView(
                                             event: event,
                                             greenhouseName: getGreenhouseName(greenhouseId: event.greenhouse_id),
-                                            plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id)
+                                            plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id),
+                                            greenhouseId: event.greenhouse_id
                                         )
+                                        .environmentObject(bleManager)
+                                        .environmentObject(sensorDataManager)
+                                        .environmentObject(wateringDataManager)
+                                        .environmentObject(fertilizingDataManager)
                                     }
                                 }
                             }
@@ -270,8 +296,29 @@ struct WorkerProfileView: View {
             }
             .padding(.vertical, 16)
         }
-        .navigationTitle(user.name)
+        .navigationTitle(currentUser.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Group {
+                    if currentUserIsAdmin && !isCurrentUser {
+                        Button(action: {
+                            showChangeRoleAlert = true
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                Text("Сменить роль")
+                            }
+                            .font(.subheadline)
+                            .foregroundColor(DesignColor.mainAccent)
+                        }
+                        .disabled(isChangingRole)
+                    } else {
+                        EmptyView()
+                    }
+                }
+            }
+        }
         .task {
             if isAdmin {
                 // Для админа загружаем все теплицы
@@ -303,7 +350,7 @@ struct WorkerProfileView: View {
         }
         .sheet(isPresented: $showAddGreenhouseSheet) {
             AddGreenhouseToUserView(
-                user: user,
+                user: currentUser,
                 allGreenhouses: allGreenhouses,
                 currentGreenhouses: greenhouses,
                 isLoading: isLoadingAllGreenhouses,
@@ -330,6 +377,16 @@ struct WorkerProfileView: View {
                 Text("Вы уверены, что хотите отвязать работника от теплицы \"\(greenhouse.name)\"?")
             }
         }
+        .alert("Сменить роль?", isPresented: $showChangeRoleAlert) {
+            Button("Отмена", role: .cancel) { }
+            Button("Сменить", role: .destructive) {
+                Task {
+                    await changeRole()
+                }
+            }
+        } message: {
+            Text("Вы уверены, что хотите изменить роль пользователя \"\(currentUser.name)\" с \"\(roleText)\" на \"\(newRoleText)\"?")
+        }
     }
     
     private func loadGreenhouses() {
@@ -343,7 +400,7 @@ struct WorkerProfileView: View {
         errorMessage = nil
         
         do {
-            let workerGreenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: user.id)
+            let workerGreenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: currentUser.id)
             await MainActor.run {
                 greenhouses = workerGreenhouses
                 isLoading = false
@@ -451,8 +508,9 @@ struct WorkerProfileView: View {
         
         do {
             // Загружаем события полива и удобрения для выбранного рабочего
-            let watering = try await APIService.shared.getWateringEvents(userId: user.id)
-            let fertilizing = try await APIService.shared.getFertilizingEvents(userId: user.id)
+            let currentUserId = await MainActor.run { currentUser.id }
+            let watering = try await APIService.shared.getWateringEvents(userId: currentUserId)
+            let fertilizing = try await APIService.shared.getFertilizingEvents(userId: currentUserId)
             
             await MainActor.run {
                 wateringEvents = watering
@@ -551,8 +609,8 @@ struct WorkerProfileView: View {
         }
         
         do {
-            try await APIService.shared.bindWorkerToGreenhouse(greenhouseId: greenhouseId, userId: user.id)
-            print("✅ Пользователь \(user.name) успешно добавлен в теплицу")
+            try await APIService.shared.bindWorkerToGreenhouse(greenhouseId: greenhouseId, userId: currentUser.id)
+            print("✅ Пользователь \(currentUser.name) успешно добавлен в теплицу")
             
             // Обновляем список теплиц
             if isAdmin {
@@ -585,8 +643,8 @@ struct WorkerProfileView: View {
         }
         
         do {
-            try await APIService.shared.unbindWorkerFromGreenhouse(greenhouseId: greenhouseId, userId: user.id)
-            print("✅ Пользователь \(user.name) успешно удален из теплицы")
+            try await APIService.shared.unbindWorkerFromGreenhouse(greenhouseId: greenhouseId, userId: currentUser.id)
+            print("✅ Пользователь \(currentUser.name) успешно удален из теплицы")
             
             // Обновляем список теплиц
             if isAdmin {
@@ -610,6 +668,67 @@ struct WorkerProfileView: View {
             }
         }
     }
+    
+    // Сменить роль пользователя
+    private func changeRole() async {
+        await MainActor.run {
+            isChangingRole = true
+            errorMessage = nil
+        }
+        
+        do {
+            // Если меняем роль на админа, сначала отвязываем все теплицы
+            if newRole == "admin" {
+                // Загружаем текущие привязанные теплицы
+                let currentGreenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: currentUser.id)
+                
+                // Отвязываем все теплицы
+                for greenhouse in currentGreenhouses {
+                    do {
+                        try await APIService.shared.unbindWorkerFromGreenhouse(greenhouseId: greenhouse.id, userId: currentUser.id)
+                        print("✅ Теплица \(greenhouse.name) отвязана от пользователя \(currentUser.name)")
+                    } catch {
+                        print("⚠️ Не удалось отвязать теплицу \(greenhouse.name): \(error)")
+                        // Продолжаем отвязку остальных теплиц даже при ошибке
+                    }
+                }
+            }
+            
+            // Меняем роль
+            let updatedUser = try await APIService.shared.updateUserRole(userId: currentUser.id, role: newRole)
+            print("✅ Роль пользователя \(currentUser.name) успешно изменена на \(newRole)")
+            
+            await MainActor.run {
+                currentUser = updatedUser
+                isChangingRole = false
+            }
+            
+            // Перезагружаем данные в зависимости от новой роли
+            if updatedUser.role == "admin" {
+                // Для админа загружаем все теплицы
+                await loadAllGreenhouses()
+            } else {
+                // Для рабочего загружаем только привязанные теплицы
+                await loadGreenhousesAsync()
+            }
+            
+            // Перезагружаем отчеты
+            await loadReports()
+            
+            // Не отправляем уведомление здесь, чтобы не прерывать навигацию
+            // Список пользователей обновится при следующем открытии экрана "Работники"
+        } catch {
+            print("❌ Ошибка смены роли: \(error)")
+            await MainActor.run {
+                isChangingRole = false
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.detail
+                } else {
+                    errorMessage = "Ошибка смены роли: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Worker Report Row View
@@ -617,6 +736,11 @@ struct WorkerReportRowView: View {
     let event: WaterEventOut
     let greenhouseName: String
     let plantTypeName: String
+    let greenhouseId: String?
+    @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     
     private var actionType: String {
         event.type == "watering" ? "Полив" : "Удобрение"
@@ -703,10 +827,25 @@ struct WorkerReportRowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             
-            Text(greenhouseName)
-                .font(.subheadline)
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Название теплицы с навигацией
+            if let greenhouseId = greenhouseId {
+                NavigationLink(destination: GreenhouseDetailView(greenhouseId: greenhouseId)
+                    .environmentObject(bleManager)
+                    .environmentObject(sensorDataManager)
+                    .environmentObject(wateringDataManager)
+                    .environmentObject(fertilizingDataManager)) {
+                    Text(greenhouseName)
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(PlainButtonStyle())
+            } else {
+                Text(greenhouseName)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             
             Text(plantTypeName)
                 .font(.subheadline)
