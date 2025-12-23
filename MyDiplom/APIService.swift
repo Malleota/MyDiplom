@@ -1116,25 +1116,18 @@ class APIService {
     }
     
     /// Получить список всех рабочих (пользователей с ролью worker)
-    /// Использует endpoint /users (доступен только для админа) и фильтрует по роли worker
+    /// Доступен для admin и worker
     func getWorkers() async throws -> [UserOut] {
         guard let token = AuthManager.shared.accessToken else {
             throw APIError(detail: "Не авторизован")
         }
         
-        // Проверяем, является ли пользователь админом
-        guard let currentUser = AuthManager.shared.currentUser, currentUser.role == "admin" else {
-            print("⚠️ getWorkers: Доступ запрещен - требуется роль admin")
-            // Возвращаем пустой список для не-админов, чтобы не блокировать создание теплицы
-            return []
-        }
-        
-        let url = URL(string: "\(baseURL)/users")!
+        let url = URL(string: "\(baseURL)/workers")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
-        print("👷 getWorkers: Запрос списка пользователей с URL: \(url.absoluteString)")
+        print("👷 getWorkers: Запрос списка рабочих с URL: \(url.absoluteString)")
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
@@ -1146,18 +1139,12 @@ class APIService {
         
         if httpResponse.statusCode == 200 {
             let decoder = JSONDecoder()
-            let users = try decoder.decode([UserOut].self, from: data)
-            // Фильтруем только активных рабочих
-            let workers = users.filter { $0.role == "worker" && $0.is_active }
-            print("✅ getWorkers: Загружено \(workers.count) рабочих из \(users.count) пользователей")
+            let workers = try decoder.decode([UserOut].self, from: data)
+            print("✅ getWorkers: Загружено \(workers.count) рабочих")
             return workers
         } else if httpResponse.statusCode == 401 {
             print("❌ getWorkers: Ошибка 401 - Не авторизован")
             throw APIError(detail: "Не авторизован")
-        } else if httpResponse.statusCode == 403 {
-            print("⚠️ getWorkers: Ошибка 403 - Доступ запрещен (требуется роль admin)")
-            // Возвращаем пустой список для не-админов
-            return []
         } else {
             let decoder = JSONDecoder()
             if let error = try? decoder.decode(APIError.self, from: data) {
@@ -2091,6 +2078,386 @@ class APIService {
             let decoder = JSONDecoder()
             if let error = try? decoder.decode(APIError.self, from: data) {
                 print("❌ getNextFertilizingForPlants: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    // MARK: - Reports
+    
+    /// Получить список отчетов о поливах и удобрениях
+    func getReports(greenhouseId: String? = nil, userId: String? = nil, dateFrom: String? = nil, dateTo: String? = nil) async throws -> [ReportOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getReports: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        var urlComponents = URLComponents(string: "\(baseURL)/reports")!
+        var queryItems: [URLQueryItem] = []
+        
+        if let greenhouseId = greenhouseId {
+            queryItems.append(URLQueryItem(name: "greenhouse_id", value: greenhouseId))
+        }
+        if let userId = userId {
+            queryItems.append(URLQueryItem(name: "user_id", value: userId))
+        }
+        if let dateFrom = dateFrom {
+            queryItems.append(URLQueryItem(name: "date_from", value: dateFrom))
+        }
+        if let dateTo = dateTo {
+            queryItems.append(URLQueryItem(name: "date_to", value: dateTo))
+        }
+        
+        if !queryItems.isEmpty {
+            urlComponents.queryItems = queryItems
+        }
+        
+        guard let url = urlComponents.url else {
+            throw APIError(detail: "Неверный URL")
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("📊 getReports: Запрос отчетов")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getReports: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📊 getReports: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let reports = try decoder.decode([ReportOut].self, from: data)
+            print("✅ getReports: Получено \(reports.count) отчетов")
+            return reports
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getReports: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getReports: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    // MARK: - Watering Events Update/Delete
+    
+    /// Обновить событие полива/удобрения
+    func updateWateringEvent(eventId: String, update: WaterEventUpdate) async throws -> WaterEventOut {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ updateWateringEvent: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/watering-events/\(eventId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(update)
+        
+        print("💧 updateWateringEvent: Обновление события \(eventId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ updateWateringEvent: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("💧 updateWateringEvent: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let event = try decoder.decode(WaterEventOut.self, from: data)
+            print("✅ updateWateringEvent: Событие успешно обновлено")
+            return event
+        } else if httpResponse.statusCode == 401 {
+            print("❌ updateWateringEvent: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ updateWateringEvent: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен к этой теплице")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ updateWateringEvent: Ошибка 404 - Событие не найдено")
+            throw APIError(detail: "Событие не найдено")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ updateWateringEvent: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Удалить событие полива/удобрения
+    func deleteWateringEvent(eventId: String) async throws {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ deleteWateringEvent: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/watering-events/\(eventId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("💧 deleteWateringEvent: Удаление события \(eventId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ deleteWateringEvent: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("💧 deleteWateringEvent: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 204 {
+            print("✅ deleteWateringEvent: Событие успешно удалено")
+            return
+        } else if httpResponse.statusCode == 401 {
+            print("❌ deleteWateringEvent: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ deleteWateringEvent: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен к этой теплице")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ deleteWateringEvent: Ошибка 404 - Событие не найдено")
+            throw APIError(detail: "Событие не найдено")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ deleteWateringEvent: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    // MARK: - Sensor Data History
+    
+    /// Получить историю данных датчика для теплицы
+    func getSensorDataHistory(greenhouseId: String, limit: Int = 100, offset: Int = 0) async throws -> [SensorReadingOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getSensorDataHistory: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        var urlComponents = URLComponents(string: "\(baseURL)/greenhouses/\(greenhouseId)/sensor-data")!
+        urlComponents.queryItems = [
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "offset", value: String(offset))
+        ]
+        
+        guard let url = urlComponents.url else {
+            throw APIError(detail: "Неверный URL")
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("📡 getSensorDataHistory: Запрос истории данных датчика для теплицы \(greenhouseId)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getSensorDataHistory: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("📡 getSensorDataHistory: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let readings = try decoder.decode([SensorReadingOut].self, from: data)
+            print("✅ getSensorDataHistory: Получено \(readings.count) записей")
+            return readings
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getSensorDataHistory: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ getSensorDataHistory: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен к этой теплице")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ getSensorDataHistory: Ошибка 404 - Теплица не найдена")
+            throw APIError(detail: "Теплица не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getSensorDataHistory: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    // MARK: - Alerts
+    
+    /// Получить список предупреждений
+    func getAlerts(greenhouseId: String? = nil, isRead: Bool? = nil) async throws -> [AlertOut] {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ getAlerts: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        var urlComponents = URLComponents(string: "\(baseURL)/alerts")!
+        var queryItems: [URLQueryItem] = []
+        
+        if let greenhouseId = greenhouseId {
+            queryItems.append(URLQueryItem(name: "greenhouse_id", value: greenhouseId))
+        }
+        if let isRead = isRead {
+            queryItems.append(URLQueryItem(name: "is_read", value: isRead ? "true" : "false"))
+        }
+        
+        if !queryItems.isEmpty {
+            urlComponents.queryItems = queryItems
+        }
+        
+        guard let url = urlComponents.url else {
+            throw APIError(detail: "Неверный URL")
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("🔔 getAlerts: Запрос списка предупреждений")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getAlerts: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🔔 getAlerts: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let alerts = try decoder.decode([AlertOut].self, from: data)
+            print("✅ getAlerts: Получено \(alerts.count) предупреждений")
+            return alerts
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getAlerts: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getAlerts: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Отметить предупреждение как прочитанное
+    func markAlertAsRead(alertId: String) async throws {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ markAlertAsRead: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        let url = URL(string: "\(baseURL)/alerts/\(alertId)/read")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("🔔 markAlertAsRead: Отметка предупреждения \(alertId) как прочитанного")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ markAlertAsRead: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🔔 markAlertAsRead: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 204 {
+            print("✅ markAlertAsRead: Предупреждение отмечено как прочитанное")
+            return
+        } else if httpResponse.statusCode == 401 {
+            print("❌ markAlertAsRead: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ markAlertAsRead: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен к этому предупреждению")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ markAlertAsRead: Ошибка 404 - Предупреждение не найдено")
+            throw APIError(detail: "Предупреждение не найдено")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ markAlertAsRead: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")
+        }
+    }
+    
+    /// Отметить все предупреждения для теплицы как прочитанные
+    func markGreenhouseAlertsAsRead(greenhouseId: String, alertType: String? = nil) async throws {
+        guard let token = AuthManager.shared.accessToken else {
+            print("❌ markGreenhouseAlertsAsRead: Нет токена авторизации")
+            throw APIError(detail: "Не авторизован")
+        }
+        
+        var urlComponents = URLComponents(string: "\(baseURL)/greenhouses/\(greenhouseId)/alerts/read")!
+        if let alertType = alertType {
+            urlComponents.queryItems = [URLQueryItem(name: "alert_type", value: alertType)]
+        }
+        
+        guard let url = urlComponents.url else {
+            throw APIError(detail: "Неверный URL")
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        print("🔔 markGreenhouseAlertsAsRead: Отметка всех предупреждений для теплицы \(greenhouseId) как прочитанных")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ markGreenhouseAlertsAsRead: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🔔 markGreenhouseAlertsAsRead: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 204 {
+            print("✅ markGreenhouseAlertsAsRead: Все предупреждения отмечены как прочитанные")
+            return
+        } else if httpResponse.statusCode == 401 {
+            print("❌ markGreenhouseAlertsAsRead: Ошибка 401 - Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else if httpResponse.statusCode == 403 {
+            print("❌ markGreenhouseAlertsAsRead: Ошибка 403 - Доступ запрещен")
+            throw APIError(detail: "Доступ запрещен к этой теплице")
+        } else if httpResponse.statusCode == 404 {
+            print("❌ markGreenhouseAlertsAsRead: Ошибка 404 - Теплица не найдена")
+            throw APIError(detail: "Теплица не найдена")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ markGreenhouseAlertsAsRead: Ошибка \(httpResponse.statusCode) - \(error.detail)")
                 throw APIError(detail: error.detail)
             }
             throw APIError(detail: "Ошибка сервера (код \(httpResponse.statusCode))")

@@ -177,6 +177,37 @@ struct WaterEventCreate: Codable {
     let comment: String?
 }
 
+struct WaterEventUpdate: Codable {
+    let comment: String?
+    let type: String?  // "watering" или "fertilizing"
+}
+
+struct ReportOut: Codable, Identifiable {
+    let event_id: String
+    let user_id: String
+    let user_email: String?
+    let user_name: String?
+    let greenhouse_id: String
+    let greenhouse_name: String?
+    let event_type: String  // "watering" или "fertilizing"
+    let plant_instance_id: String?
+    let created_at: String
+    let comment: String?
+    
+    var id: String { event_id }
+}
+
+struct AlertOut: Codable, Identifiable {
+    let id: String
+    let greenhouse_id: String?
+    let user_id: String?
+    let type: String  // Тип алерта (например, "watering_overdue", "fertilizing_overdue", "temperature_alert", etc.)
+    let message: String
+    let severity: String?  // "low", "medium", "high"
+    let is_read: Bool
+    let created_at: String
+}
+
 // MARK: - Plant Models
 
 struct PlantTypeCreate: Codable {
