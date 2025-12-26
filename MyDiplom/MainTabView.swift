@@ -9,6 +9,10 @@ import SwiftUI
 import CoreBluetooth
 import Combine
 
+// Глобальная блокировка для предотвращения одновременных операций полива/удобрения
+private let globalOperationLock = NSLock()
+private var activeOperations: Set<String> = [] // plantInstanceId -> активные операции
+
 struct MainTabView: View {
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var bleManager = BLEManager()
@@ -130,25 +134,13 @@ struct HomeView: View {
                     .padding(.top, 8)
 
                     // Блок "Требуют внимания"
-                    VStack(alignment: .leading, spacing: 0) {
-                        // Заголовок блока с иконкой и счетчиком
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Заголовок блока
                         HStack(alignment: .center, spacing: 12) {
-                            HStack(spacing: 10) {
-                               // ZStack {
-                                   // Circle()
-                                    //    .fill(DesignColor.myYellow.opacity(0.15))
-                                   //     .frame(width: 40, height: 40)
-                                    
-                                   // Image(systemName: "exclamationmark.triangle.fill")
-                                   //     .font(.system(size: 18, weight: .semibold))
-                                  //      .foregroundColor(DesignColor.myYellow)
-                                //}
-                                
-                                Text("Требуют внимания")
-                                    .font(.title3)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
-                            }
+                            Text("Требуют внимания")
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
                             
                             Spacer()
                             
@@ -158,9 +150,7 @@ struct HomeView: View {
                                     .scaleEffect(0.8)
                             }
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-                        .padding(.bottom, 16)
+                        .padding(.horizontal)
                         
                         // Контент блока
                         if viewModel.isLoading {
@@ -171,9 +161,8 @@ struct HomeView: View {
                                     .padding(.vertical, 32)
                                 Spacer()
                             }
-                            .padding(.bottom, 16)
                         } else if viewModel.greenhousesRequiringAttention.isEmpty {
-                            // Пустое состояние
+                            // Пустое состояние - все теплицы в порядке
                             VStack(spacing: 16) {
                                 ZStack {
                                     Circle()
@@ -199,17 +188,28 @@ struct HomeView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 32)
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 16)
+                            .padding(.horizontal)
+                        } else if viewModel.greenhousesRequiringAttention.count == 1 {
+                            // Если одна теплица - показываем на всю ширину без скролла
+                            ForEach(viewModel.greenhousesRequiringAttention, id: \.id) { greenhouse in
+                                FlatGreenhouseCardView(
+                                    greenhouse: greenhouse,
+                                    sensorData: viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: manager, sensorDataManager: sensorDataManager),
+                                    nextWatering: wateringDataManager.getNextWatering(greenhouseId: greenhouse.id),
+                                    nextFertilizing: fertilizingDataManager.getNextFertilizing(greenhouseId: greenhouse.id),
+                                    plantImageUrl: viewModel.getPlantImageUrl(
+                                        greenhouse: greenhouse,
+                                        nextWatering: wateringDataManager.getNextWatering(greenhouseId: greenhouse.id),
+                                        nextFertilizing: fertilizingDataManager.getNextFertilizing(greenhouseId: greenhouse.id)
+                                    )
+                                )
+                            }
+                            .padding(.horizontal)
                         } else {
-                            // Список теплиц вертикально
-                            VStack(spacing: 12) {
-                                ForEach(viewModel.greenhousesRequiringAttention, id: \.id) { greenhouse in
-                                    NavigationLink(destination: GreenhouseDetailView(greenhouseId: greenhouse.id)
-                                        .environmentObject(manager)
-                                        .environmentObject(sensorDataManager)
-                                        .environmentObject(wateringDataManager)
-                                        .environmentObject(fertilizingDataManager)) {
+                            // Горизонтальный скролл карточек для нескольких теплиц
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(viewModel.greenhousesRequiringAttention, id: \.id) { greenhouse in
                                         FlatGreenhouseCardView(
                                             greenhouse: greenhouse,
                                             sensorData: viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: manager, sensorDataManager: sensorDataManager),
@@ -221,23 +221,13 @@ struct HomeView: View {
                                                 nextFertilizing: fertilizingDataManager.getNextFertilizing(greenhouseId: greenhouse.id)
                                             )
                                         )
+                                        .frame(width: 320)
                                     }
-                                    .buttonStyle(PlainButtonStyle())
                                 }
+                                .padding(.horizontal)
                             }
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 20)
                         }
                     }
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(Color(.systemBackground))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
-                            )
-                    )
-                    .padding(.horizontal)
 
                     // Состояние Bluetooth
                     switch manager.bluetoothState {
@@ -465,10 +455,10 @@ class HomeViewModel: ObservableObject {
                 print("   ✅ Требует внимания: полив просрочен")
                 return true
             }
-            // Полив требуется сегодня или завтра (days_until <= 1)
+            // Полив требуется сегодня (days_until == 0)
             if let daysUntil = watering.days_until {
-                if daysUntil <= 1 {
-                    print("   ✅ Требует внимания: полив через \(daysUntil) день(дней)")
+                if daysUntil == 0 {
+                    print("   ✅ Требует внимания: полив сегодня")
                     return true
                 }
             }
@@ -481,10 +471,10 @@ class HomeViewModel: ObservableObject {
                 print("   ✅ Требует внимания: удобрение просрочено")
                 return true
             }
-            // Удобрение требуется сегодня или завтра (days_until <= 1)
+            // Удобрение требуется сегодня (days_until == 0)
             if let daysUntil = fertilizing.days_until {
-                if daysUntil <= 1 {
-                    print("   ✅ Требует внимания: удобрение через \(daysUntil) день(дней)")
+                if daysUntil == 0 {
+                    print("   ✅ Требует внимания: удобрение сегодня")
                     return true
                 }
             }
@@ -572,7 +562,7 @@ struct GreenhousesView: View {
     }
 }
 
-// MARK: - Flat Greenhouse Card View (без тени для использования внутри блока)
+// MARK: - Flat Greenhouse Card View (новый дизайн в формате карточки)
 struct FlatGreenhouseCardView: View {
     let greenhouse: GreenhouseOut
     let sensorData: SensorReadingOut?
@@ -580,22 +570,16 @@ struct FlatGreenhouseCardView: View {
     let nextFertilizing: NextWateringOut?
     let plantImageUrl: String?
     
-    // Проверяем, нужно ли показывать кнопку "Полить" (как в PlantCardView)
-    private var shouldShowWaterButton: Bool {
-        guard let nextWatering = nextWatering else { return false }
-        if let daysUntil = nextWatering.days_until {
-            return nextWatering.is_overdue || daysUntil == 0
-        }
-        return false
-    }
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     
-    // Проверяем, нужно ли показывать кнопку "Удобрить" (как в PlantCardView)
-    private var shouldShowFertilizeButton: Bool {
-        guard let nextFertilizing = nextFertilizing else { return false }
-        if let daysUntil = nextFertilizing.days_until {
-            return nextFertilizing.is_overdue || daysUntil == 0
-        }
-        return false
+    @State private var isWatering = false
+    @State private var isFertilizing = false
+    @State private var errorMessage: String?
+    
+    // Получаем plant_instance_id из nextWatering или nextFertilizing
+    private var plantInstanceId: String? {
+        nextWatering?.plant_instance_id ?? nextFertilizing?.plant_instance_id
     }
     
     private var plantName: String {
@@ -608,159 +592,350 @@ struct FlatGreenhouseCardView: View {
         return "Растение"
     }
     
-    var body: some View {
-        HStack(spacing: 16) {
-            // Изображение растения (квадратная с закругленными углами)
-            if let imageUrl = plantImageUrl,
-               let url = APIService.shared.getFullImageURL(imageUrl) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .empty:
-                        ProgressView()
-                            .frame(width: 44, height: 44)
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    case .failure:
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.gray.opacity(0.15))
-                            .frame(width: 44, height: 44)
-                            .overlay(
-                                Image(systemName: "leaf.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(DesignColor.mainAccent.opacity(0.7))
-                            )
-                    @unknown default:
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.gray.opacity(0.15))
-                            .frame(width: 44, height: 44)
-                    }
+    // Проверяем, нужно ли показывать кнопку "Полить"
+    private var shouldShowWaterButton: Bool {
+        guard let nextWatering = nextWatering else { return false }
+        if let daysUntil = nextWatering.days_until {
+            return nextWatering.is_overdue || daysUntil == 0
+        }
+        return false
+    }
+    
+    // Проверяем, нужно ли показывать кнопку "Удобрить"
+    private var shouldShowFertilizeButton: Bool {
+        guard let nextFertilizing = nextFertilizing else { return false }
+        if let daysUntil = nextFertilizing.days_until {
+            return nextFertilizing.is_overdue || daysUntil == 0
+        }
+        return false
+    }
+    
+    // Форматирование текста для полива
+    private var wateringText: String {
+        if let nextWatering = nextWatering {
+            if let daysUntil = nextWatering.days_until {
+                if nextWatering.is_overdue {
+                    return "Просрочено на \(abs(daysUntil)) \(daysWordForm(abs(daysUntil)))"
+                } else if daysUntil == 0 {
+                    return "Сегодня"
+                } else {
+                    return "через \(daysUntil) \(daysWordForm(daysUntil))"
                 }
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else if let lastWateringDate = nextWatering.next_watering_date {
+                return "Последний: \(formatDate(lastWateringDate))"
             } else {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.gray.opacity(0.15))
-                    .frame(width: 44, height: 44)
-                    .overlay(
-                        Image(systemName: "leaf.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(DesignColor.mainAccent.opacity(0.7))
-                    )
+                return "Не запланирован"
             }
-            
-            // Информация о теплице и растении
-            VStack(alignment: .leading, spacing: 8) {
-                Text(greenhouse.name)
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                
-                Text(plantName)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                
-                // Информация о поливе и удобрении
-                VStack(alignment: .leading, spacing: 4) {
-                    // Время до следующего полива
-                    if let nextWatering = nextWatering {
-                        if let daysUntil = nextWatering.days_until {
-                            if nextWatering.is_overdue {
-                                Label("\(abs(daysUntil)) \(daysWordForm(abs(daysUntil)))", systemImage: "drop")
-                                    .font(.subheadline)
-                                    .foregroundColor(DesignColor.mainRed)
-                            } else if daysUntil == 0 {
-                                Label("Сегодня", systemImage: "drop")
-                                    .font(.subheadline)
-                                    .foregroundColor(DesignColor.myYellow)
-                            } else {
-                                Label("\(daysUntil) \(daysWordForm(daysUntil))", systemImage: "drop")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                        } else if let lastWateringDate = nextWatering.next_watering_date {
-                            Label("Последний: \(formatDate(lastWateringDate))", systemImage: "drop")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        } else {
-                            Label("Не запланирован", systemImage: "drop")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                    } else {
-                        Label("Загрузка...", systemImage: "drop")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    // Время до следующего удобрения
-                    if let nextFertilizing = nextFertilizing {
-                        if let daysUntil = nextFertilizing.days_until {
-                            if nextFertilizing.is_overdue {
-                                Label("\(abs(daysUntil)) \(daysWordForm(abs(daysUntil)))", systemImage: "pills")
-                                    .font(.subheadline)
-                                    .foregroundColor(DesignColor.mainRed)
-                            } else if daysUntil == 0 {
-                                Label("Сегодня", systemImage: "pills")
-                                    .font(.subheadline)
-                                    .foregroundColor(DesignColor.myYellow)
-                            } else {
-                                Label("\(daysUntil) \(daysWordForm(daysUntil))", systemImage: "pills")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                        } else if let lastFertilizingDate = nextFertilizing.next_watering_date {
-                            Label("Последнее: \(formatDate(lastFertilizingDate))", systemImage: "pills")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        } else {
-                            Label("Не запланировано", systemImage: "testtube.2")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                    } else {
-                        Label("Загрузка...", systemImage: "testtube.2")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
+        }
+        return "Загрузка..."
+    }
+    
+    // Форматирование текста для удобрения
+    private var fertilizingText: String {
+        if let nextFertilizing = nextFertilizing {
+            if let daysUntil = nextFertilizing.days_until {
+                if nextFertilizing.is_overdue {
+                    return "Просрочено на \(abs(daysUntil)) \(daysWordForm(abs(daysUntil)))"
+                } else if daysUntil == 0 {
+                    return "Сегодня"
+                } else {
+                    return "через \(daysUntil) \(daysWordForm(daysUntil))"
                 }
+            } else if let lastFertilizingDate = nextFertilizing.next_watering_date {
+                return "Последнее: \(formatDate(lastFertilizingDate))"
+            } else {
+                return "Не запланировано"
             }
-            
-            Spacer()
-            
-            // Кнопки действий (как в PlantCardView - только если просрочено или требуется сегодня)
-            VStack(spacing: 8) {
-                // Кнопка "Полить" - показываем только если просрочено или требуется сегодня
-                if shouldShowWaterButton {
-                    Text("Полить")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .tracking(-0.5)
-                        .lineSpacing(15)
-                        .foregroundColor(DesignColor.myBlue)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(DesignColor.myBlue.opacity(0.1))
-                        .cornerRadius(40)
-                }
-                
-                // Кнопка "Удобрить" - показываем только если просрочено или требуется сегодня
-                if shouldShowFertilizeButton {
-                    Text("Удобрить")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .tracking(-0.5)
-                        .lineSpacing(15)
-                        .foregroundColor(DesignColor.myBrown)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(DesignColor.myBrown.opacity(0.1))
-                        .cornerRadius(40)
+        }
+        return "Загрузка..."
+    }
+    
+    // Цвет текста для полива (красный если просрочено или сегодня)
+    private var wateringTextColor: Color {
+        if let nextWatering = nextWatering {
+            if let daysUntil = nextWatering.days_until {
+                if nextWatering.is_overdue || daysUntil == 0 {
+                    return DesignColor.mainRed
                 }
             }
         }
-      
+        return .secondary
+    }
+    
+    // Цвет текста для удобрения (красный если просрочено или сегодня)
+    private var fertilizingTextColor: Color {
+        if let nextFertilizing = nextFertilizing {
+            if let daysUntil = nextFertilizing.days_until {
+                if nextFertilizing.is_overdue || daysUntil == 0 {
+                    return DesignColor.mainRed
+                }
+            }
+        }
+        return .secondary
+    }
+    
+    @EnvironmentObject var manager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    
+    var body: some View {
+        NavigationLink(destination: GreenhouseDetailView(greenhouseId: greenhouse.id)
+            .environmentObject(manager)
+            .environmentObject(sensorDataManager)
+            .environmentObject(wateringDataManager)
+            .environmentObject(fertilizingDataManager)) {
+            VStack(spacing: 0) {
+            // Верхняя часть: иконка, название теплицы и растения
+            HStack(spacing: 12) {
+                // Изображение растения
+                if let imageUrl = plantImageUrl,
+                   let url = APIService.shared.getFullImageURL(imageUrl) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .frame(width: 60, height: 60)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        case .failure:
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.gray.opacity(0.15))
+                                .frame(width: 60, height: 60)
+                                .overlay(
+                                    Image(systemName: "leaf.fill")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(DesignColor.mainAccent.opacity(0.7))
+                                )
+                        @unknown default:
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.gray.opacity(0.15))
+                                .frame(width: 60, height: 60)
+                        }
+                    }
+                    .frame(width: 60, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                } else {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.gray.opacity(0.15))
+                        .frame(width: 60, height: 60)
+                        .overlay(
+                            Image(systemName: "leaf.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(DesignColor.mainAccent.opacity(0.7))
+                        )
+                }
+                
+                // Название теплицы и растения
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(greenhouse.name)
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                    
+                    Text(plantName)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+            
+            // Разделитель
+            Divider()
+                .background(Color.gray.opacity(0.2))
+                .padding(.horizontal, 16)
+            
+            // Информация о поливе и удобрении
+            VStack(spacing: 10) {
+                // Полив
+                HStack(spacing: 8) {
+                    Image(systemName: "drop")
+                        .font(.system(size: 14))
+                        .foregroundColor(DesignColor.myBlue.opacity(0.8))
+                    
+                    HStack(spacing: 4) {
+                        Text("Полив:")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                        
+                        Text(wateringText)
+                            .font(.subheadline)
+                            .foregroundColor(wateringTextColor)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                
+                // Удобрение
+                HStack(spacing: 8) {
+                    Image(systemName: "pills")
+                        .font(.system(size: 14))
+                        .foregroundColor(DesignColor.myBrown.opacity(0.8))
+                    
+                    HStack(spacing: 4) {
+                        Text("Удобрение:")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                        
+                        Text(fertilizingText)
+                            .font(.subheadline)
+                            .foregroundColor(fertilizingTextColor)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(.bottom, 12)
+            
+            // Кнопки действий (показываем только нужные)
+            if shouldShowWaterButton || shouldShowFertilizeButton {
+                HStack(spacing: 12) {
+                    // Кнопка "Полить"
+                    if shouldShowWaterButton {
+                        Button(action: {
+                            guard let plantInstanceId = plantInstanceId else { return }
+                            
+                            // АТОМАРНАЯ БЛОКИРОВКА: Используем глобальный NSLock для синхронной проверки
+                            globalOperationLock.lock()
+                            let isAlreadyActive = activeOperations.contains(plantInstanceId)
+                            if !isAlreadyActive {
+                                activeOperations.insert(plantInstanceId)
+                                print("🔒 waterPlant: Блокировка установлена для растения \(plantInstanceId)")
+                            }
+                            globalOperationLock.unlock()
+                            
+                            if isAlreadyActive {
+                                print("⚠️ Кнопка 'Полить' заблокирована, операция уже выполняется для растения \(plantInstanceId)")
+                                return
+                            }
+                            
+                            Task { @MainActor in
+                                // Дополнительная проверка на MainActor
+                                if isWatering || isFertilizing {
+                                    print("⚠️ waterPlant: Операция уже выполняется, пропускаем (внутри Task)")
+                                    globalOperationLock.lock()
+                                    activeOperations.remove(plantInstanceId)
+                                    globalOperationLock.unlock()
+                                    return
+                                }
+                                isWatering = true
+                                print("🔒 waterPlant: Флаг установлен в Task перед вызовом функции")
+                                
+                                await waterPlant()
+                                
+                                // Снимаем блокировку после завершения
+                                globalOperationLock.lock()
+                                activeOperations.remove(plantInstanceId)
+                                globalOperationLock.unlock()
+                                print("🔓 waterPlant: Блокировка снята для растения \(plantInstanceId)")
+                            }
+                        }) {
+                            if isWatering {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Text("Полить")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(DesignColor.myBlue)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(DesignColor.myBlue.opacity(0.15))
+                        .cornerRadius(10)
+                        .disabled(isWatering || isFertilizing)
+                        .simultaneousGesture(TapGesture().onEnded { })
+                    }
+                    
+                    // Кнопка "Удобрить"
+                    if shouldShowFertilizeButton {
+                        Button(action: {
+                            guard let plantInstanceId = plantInstanceId else { return }
+                            
+                            // АТОМАРНАЯ БЛОКИРОВКА: Используем глобальный NSLock для синхронной проверки
+                            globalOperationLock.lock()
+                            let isAlreadyActive = activeOperations.contains(plantInstanceId)
+                            if !isAlreadyActive {
+                                activeOperations.insert(plantInstanceId)
+                                print("🔒 fertilizePlant: Блокировка установлена для растения \(plantInstanceId)")
+                            }
+                            globalOperationLock.unlock()
+                            
+                            if isAlreadyActive {
+                                print("⚠️ Кнопка 'Удобрить' заблокирована, операция уже выполняется для растения \(plantInstanceId)")
+                                return
+                            }
+                            
+                            Task { @MainActor in
+                                // Дополнительная проверка на MainActor
+                                if isWatering || isFertilizing {
+                                    print("⚠️ fertilizePlant: Операция уже выполняется, пропускаем (внутри Task)")
+                                    globalOperationLock.lock()
+                                    activeOperations.remove(plantInstanceId)
+                                    globalOperationLock.unlock()
+                                    return
+                                }
+                                isFertilizing = true
+                                print("🔒 fertilizePlant: Флаг установлен в Task перед вызовом функции")
+                                
+                                await fertilizePlant()
+                                
+                                // Снимаем блокировку после завершения
+                                globalOperationLock.lock()
+                                activeOperations.remove(plantInstanceId)
+                                globalOperationLock.unlock()
+                                print("🔓 fertilizePlant: Блокировка снята для растения \(plantInstanceId)")
+                            }
+                        }) {
+                            if isFertilizing {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Text("Удобрить")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(DesignColor.myBrown)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(DesignColor.myBrown.opacity(0.15))
+                        .cornerRadius(10)
+                        .disabled(isWatering || isFertilizing)
+                        .simultaneousGesture(TapGesture().onEnded { })
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+            }
+            
+            // Сообщение об ошибке
+            if let error = errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(DesignColor.mainRed)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+            }
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
+        )
+        }
+        .buttonStyle(PlainButtonStyle())
     }
     
     // Вспомогательные функции
@@ -783,6 +958,154 @@ struct FlatGreenhouseCardView: View {
         dateFormatter.dateStyle = .short
         dateFormatter.timeStyle = .none
         return dateFormatter.string(from: date)
+    }
+    
+    private func waterPlant() async {
+        guard let plantInstanceId = plantInstanceId else {
+            print("❌ waterPlant: plantInstanceId отсутствует")
+            await MainActor.run {
+                isWatering = false
+            }
+            return
+        }
+        
+        print("🔵 waterPlant: Начало выполнения для растения \(plantInstanceId)")
+        
+        // Дополнительная проверка на случай, если флаг не был установлен в обработчике
+        let shouldProceed = await MainActor.run {
+            if isFertilizing {
+                print("⚠️ waterPlant: Операция удобрения уже выполняется, пропускаем вызов")
+                isWatering = false
+                return false
+            }
+            if !isWatering {
+                print("⚠️ waterPlant: Флаг не установлен, устанавливаем сейчас")
+                isWatering = true
+            }
+            errorMessage = nil
+            print("✅ waterPlant: Флаг проверен/установлен, начинаем создание события")
+            return true
+        }
+        
+        guard shouldProceed else {
+            print("❌ waterPlant: Вызов заблокирован, выходим")
+            return
+        }
+        
+        do {
+            print("💧 waterPlant: Вызываем createWateringEvent для растения \(plantInstanceId)")
+            _ = try await APIService.shared.createWateringEvent(
+                greenhouseId: greenhouse.id,
+                plantInstanceId: plantInstanceId,
+                type: "watering",
+                comment: nil
+            )
+            
+            print("✅ Полив успешно выполнен для растения \(plantInstanceId)")
+            
+            // Ждем немного, чтобы сервер успел пересчитать данные о поливе
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+            
+            // Обновляем данные
+            await MainActor.run {
+                isWatering = false
+            }
+            
+            // Обновляем данные о поливе
+            await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
+            
+            // Отправляем уведомление об обновлении
+            NotificationCenter.default.post(name: NSNotification.Name("NextWateringUpdated"), object: nil)
+        } catch {
+            print("❌ Ошибка полива: \(error)")
+            await MainActor.run {
+                isWatering = false
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.detail
+                } else {
+                    errorMessage = "Ошибка полива: \(error.localizedDescription)"
+                }
+            }
+            // Снимаем блокировку в случае ошибки
+            globalOperationLock.lock()
+            activeOperations.remove(plantInstanceId)
+            globalOperationLock.unlock()
+            print("🔓 waterPlant: Блокировка снята после ошибки для растения \(plantInstanceId)")
+        }
+    }
+    
+    private func fertilizePlant() async {
+        guard let plantInstanceId = plantInstanceId else {
+            print("❌ fertilizePlant: plantInstanceId отсутствует")
+            await MainActor.run {
+                isFertilizing = false
+            }
+            return
+        }
+        
+        print("🟢 fertilizePlant: Начало выполнения для растения \(plantInstanceId)")
+        
+        // Дополнительная проверка на случай, если флаг не был установлен в обработчике
+        let shouldProceed = await MainActor.run {
+            if isWatering {
+                print("⚠️ fertilizePlant: Операция полива уже выполняется, пропускаем вызов")
+                isFertilizing = false
+                return false
+            }
+            if !isFertilizing {
+                print("⚠️ fertilizePlant: Флаг не установлен, устанавливаем сейчас")
+                isFertilizing = true
+            }
+            errorMessage = nil
+            print("✅ fertilizePlant: Флаг проверен/установлен, начинаем создание события")
+            return true
+        }
+        
+        guard shouldProceed else {
+            print("❌ fertilizePlant: Вызов заблокирован, выходим")
+            return
+        }
+        
+        do {
+            print("🌿 fertilizePlant: Вызываем createWateringEvent для растения \(plantInstanceId)")
+            _ = try await APIService.shared.createWateringEvent(
+                greenhouseId: greenhouse.id,
+                plantInstanceId: plantInstanceId,
+                type: "fertilizing",
+                comment: nil
+            )
+            
+            print("✅ Удобрение успешно выполнено для растения \(plantInstanceId)")
+            
+            // Ждем немного, чтобы сервер успел пересчитать данные об удобрении
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+            
+            // Обновляем данные
+            await MainActor.run {
+                isFertilizing = false
+            }
+            
+            // Обновляем данные об удобрении
+            await fertilizingDataManager.loadNextFertilizingForGreenhouse(greenhouse)
+            
+            // Отправляем уведомление об обновлении
+            NotificationCenter.default.post(name: NSNotification.Name("NextFertilizingUpdated"), object: nil)
+        } catch {
+            print("❌ Ошибка удобрения: \(error)")
+            await MainActor.run {
+                isFertilizing = false
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.detail
+                } else {
+                    errorMessage = "Ошибка удобрения: \(error.localizedDescription)"
+                }
+            }
+            // Снимаем блокировку в случае ошибки
+            globalOperationLock.lock()
+            activeOperations.remove(plantInstanceId)
+            globalOperationLock.unlock()
+            print("🔓 fertilizePlant: Блокировка снята после ошибки для растения \(plantInstanceId)")
+        }
     }
 }
 
