@@ -312,8 +312,17 @@ struct HomeView: View {
                         }
                     }
                 }
-                .padding(.vertical)
+                
+                // Блок "Сводка" - только для админа
+                if authManager.currentUser?.role == "admin" {
+                    SummaryBlockView()
+                        .environmentObject(manager)
+                        .environmentObject(sensorDataManager)
+                        .environmentObject(wateringDataManager)
+                        .environmentObject(fertilizingDataManager)
+                }
             }
+            .padding(.vertical)
             .sheet(isPresented: $showProfile) {
                 ProfileView()
                     .onDisappear {
@@ -1311,6 +1320,724 @@ struct SensorCardView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Summary Block View
+enum SummaryTab: String, CaseIterable {
+    case byGreenhouses = "По теплицам"
+    case byWorkers = "По рабочим"
+}
+
+struct SummaryBlockView: View {
+    @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
+    @StateObject private var viewModel = SummaryViewModel()
+    @State private var selectedTab: SummaryTab = .byGreenhouses
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Заголовок блока
+            HStack(alignment: .center, spacing: 12) {
+                Text("Сводка")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            // Переключатель вкладок
+            CustomSegmentedControl(
+                items: [
+                    SegmentItem(title: "По теплицам", icon: "building.2", color: DesignColor.myDarkBlue),
+                    SegmentItem(title: "По рабочим", icon: "person.2", color: DesignColor.myPerple)
+                ],
+                selection: $selectedTab
+            )
+            .padding(.horizontal)
+            
+            // Контент вкладок
+            if viewModel.isLoading {
+                HStack {
+                    Spacer()
+                    ProgressView("Загрузка данных...")
+                        .padding(.vertical, 32)
+                    Spacer()
+                }
+            } else {
+                switch selectedTab {
+                case .byGreenhouses:
+                    SummaryByGreenhousesView(viewModel: viewModel)
+                case .byWorkers:
+                    SummaryByWorkersView(viewModel: viewModel)
+                }
+            }
+        }
+        .task {
+            // При первой загрузке загружаем данные для текущей вкладки
+            await viewModel.loadData(for: selectedTab)
+        }
+        .onChange(of: selectedTab) { newTab in
+            viewModel.resetPagination()
+            // Загружаем данные только для новой вкладки, если они еще не загружены
+            Task {
+                await viewModel.loadDataIfNeeded(for: newTab)
+            }
+        }
+    }
+}
+
+// MARK: - Summary ViewModel
+@MainActor
+class SummaryViewModel: ObservableObject {
+    @Published var isLoading = false
+    
+    // Данные по теплицам
+    @Published var allWateringEvents: [WaterEventOut] = []
+    @Published var allFertilizingEvents: [WaterEventOut] = []
+    @Published var allOverdueReports: [OverdueReportOut] = []
+    @Published var allGreenhouses: [GreenhouseOut] = []
+    @Published var allUsers: [String: UserOut] = [:] // userId -> UserOut
+    @Published var allPlantTypes: [String: PlantTypeOut] = [:] // plant_type_id -> PlantTypeOut
+    @Published var allPlantInstances: [String: PlantInstanceOut] = [:] // plant_instance_id -> PlantInstanceOut
+    
+    // Данные по рабочим
+    @Published var allWorkers: [UserOut] = []
+    @Published var workerEvents: [String: [WaterEventOut]] = [:] // userId -> [events]
+    
+    // Флаги загруженных данных
+    private var greenhousesDataLoaded = false
+    private var workersDataLoaded = false
+    
+    // Пагинация
+    @Published var currentReportPage: Int = 1
+    @Published var currentWorkerPage: Int = 1
+    private let itemsPerPage = 10
+    
+    func loadData(for tab: SummaryTab? = nil) async {
+        isLoading = true
+        defer { isLoading = false }
+        
+        // Сбрасываем пагинацию при загрузке
+        resetPagination()
+        
+        do {
+            // Загружаем базовые данные параллельно
+            async let greenhousesTask = APIService.shared.getGreenhouses()
+            async let workersTask = APIService.shared.getWorkers()
+            async let plantTypesTask = APIService.shared.getPlantTypes()
+            
+            // Ждем завершения базовых загрузок
+            allGreenhouses = try await greenhousesTask
+            allWorkers = try await workersTask
+            let plantTypes = try await plantTypesTask
+            allPlantTypes = Dictionary(uniqueKeysWithValues: plantTypes.map { ($0.id, $0) })
+            
+            // Создаем словарь пользователей
+            var usersDict: [String: UserOut] = [:]
+            for worker in allWorkers {
+                usersDict[worker.id] = worker
+            }
+            if let currentUser = AuthManager.shared.currentUser {
+                usersDict[currentUser.id] = currentUser
+            }
+            allUsers = usersDict
+            
+            // Загружаем данные в зависимости от вкладки
+            if let tab = tab {
+                // Загружаем только для текущей вкладки, если еще не загружено
+                switch tab {
+                case .byGreenhouses:
+                    if !greenhousesDataLoaded {
+                        await loadGreenhousesData()
+                        greenhousesDataLoaded = true
+                    }
+                case .byWorkers:
+                    if !workersDataLoaded {
+                        await loadWorkersData()
+                        workersDataLoaded = true
+                    }
+                }
+            } else {
+                // Загружаем для обеих вкладок параллельно, если еще не загружено
+                if !greenhousesDataLoaded {
+                    await loadGreenhousesData()
+                    greenhousesDataLoaded = true
+                }
+                if !workersDataLoaded {
+                    await loadWorkersData()
+                    workersDataLoaded = true
+                }
+            }
+            
+            print("📊 SummaryViewModel: Загружено \(allWateringEvents.count) поливов, \(allFertilizingEvents.count) удобрений, \(allOverdueReports.count) отчетов")
+        } catch {
+            print("❌ SummaryViewModel: Ошибка загрузки данных: \(error)")
+        }
+    }
+    
+    // Загружает данные только если они еще не загружены (без установки isLoading)
+    func loadDataIfNeeded(for tab: SummaryTab) async {
+        // Проверяем, нужно ли загружать базовые данные
+        let needsBaseData = allGreenhouses.isEmpty || allWorkers.isEmpty || allPlantTypes.isEmpty
+        
+        if needsBaseData {
+            // Если базовых данных нет, загружаем все
+            await loadData(for: tab)
+            return
+        }
+        
+        // Если базовые данные есть, загружаем только данные для вкладки, если нужно
+        switch tab {
+        case .byGreenhouses:
+            if !greenhousesDataLoaded {
+                await loadGreenhousesData()
+                greenhousesDataLoaded = true
+            }
+        case .byWorkers:
+            if !workersDataLoaded {
+                await loadWorkersData()
+                workersDataLoaded = true
+            }
+        }
+    }
+    
+    // Загрузка данных для вкладки "По теплицам"
+    private func loadGreenhousesData() async {
+        // Загружаем события и отчеты параллельно
+        async let wateringTask = APIService.shared.getWateringEvents()
+        async let fertilizingTask = APIService.shared.getFertilizingEvents()
+        async let overdueTask = APIService.shared.getOverdueReports()
+        
+        do {
+            allWateringEvents = try await wateringTask
+            allFertilizingEvents = try await fertilizingTask
+            allOverdueReports = try await overdueTask
+        } catch {
+            print("❌ Ошибка загрузки данных по теплицам: \(error)")
+        }
+        
+        // Загружаем растения только для тех теплиц, которые есть в событиях
+        let greenhouseIdsInEvents = Set(
+            (allWateringEvents + allFertilizingEvents).map { $0.greenhouse_id } +
+            allOverdueReports.map { $0.greenhouse_id }
+        )
+        
+        // Загружаем растения параллельно только для нужных теплиц
+        await withTaskGroup(of: Void.self) { group in
+            for greenhouseId in greenhouseIdsInEvents {
+                group.addTask {
+                    do {
+                        let instances = try await APIService.shared.getPlantInstances(greenhouseId: greenhouseId)
+                        await MainActor.run {
+                            for instance in instances {
+                                self.allPlantInstances[instance.id] = instance
+                            }
+                        }
+                    } catch {
+                        print("❌ Ошибка загрузки растений для теплицы \(greenhouseId): \(error)")
+                    }
+                }
+            }
+        }
+    }
+    
+    // Загрузка данных для вкладки "По рабочим"
+    private func loadWorkersData() async {
+        // Загружаем события по каждому рабочему параллельно
+        await withTaskGroup(of: Void.self) { group in
+            for worker in allWorkers {
+                group.addTask {
+                    do {
+                        async let wateringTask = APIService.shared.getWateringEvents(userId: worker.id)
+                        async let fertilizingTask = APIService.shared.getFertilizingEvents(userId: worker.id)
+                        
+                        let watering = try await wateringTask
+                        let fertilizing = try await fertilizingTask
+                        let events = (watering + fertilizing).sorted { $0.created_at > $1.created_at }
+                        
+                        await MainActor.run {
+                            self.workerEvents[worker.id] = events
+                        }
+                    } catch {
+                        print("❌ Ошибка загрузки событий для рабочего \(worker.id): \(error)")
+                    }
+                }
+            }
+        }
+        
+        // Загружаем растения только для тех теплиц, которые есть в событиях рабочих
+        let greenhouseIdsInWorkerEvents = Set(
+            workerEvents.values.flatMap { $0.map { $0.greenhouse_id } }
+        )
+        
+        // Загружаем растения параллельно только для нужных теплиц
+        await withTaskGroup(of: Void.self) { group in
+            for greenhouseId in greenhouseIdsInWorkerEvents {
+                // Проверяем, не загружены ли уже растения для этой теплицы
+                if allPlantInstances.values.contains(where: { $0.greenhouse_id == greenhouseId }) {
+                    continue
+                }
+                
+                group.addTask {
+                    do {
+                        let instances = try await APIService.shared.getPlantInstances(greenhouseId: greenhouseId)
+                        await MainActor.run {
+                            for instance in instances {
+                                self.allPlantInstances[instance.id] = instance
+                            }
+                        }
+                    } catch {
+                        print("❌ Ошибка загрузки растений для теплицы \(greenhouseId): \(error)")
+                    }
+                }
+            }
+        }
+    }
+    
+    // Объединенные события и отчеты для отображения по теплицам
+    var allReportItems: [SummaryReportItem] {
+        var items: [SummaryReportItem] = []
+        
+        // Добавляем события
+        for event in (allWateringEvents + allFertilizingEvents) {
+            items.append(.event(event))
+        }
+        
+        // Добавляем отчеты о просрочках
+        for report in allOverdueReports {
+            items.append(.report(report))
+        }
+        
+        // Сортируем по дате создания (новые сверху)
+        return items.sorted { item1, item2 in
+            item1.createdAt > item2.createdAt
+        }
+    }
+    
+    // Пагинированные элементы для отображения по теплицам
+    var paginatedReportItems: [SummaryReportItem] {
+        let all = allReportItems
+        let startIndex = (currentReportPage - 1) * itemsPerPage
+        let endIndex = min(startIndex + itemsPerPage, all.count)
+        guard startIndex < all.count else { return [] }
+        return Array(all[startIndex..<endIndex])
+    }
+    
+    // Общее количество страниц (по теплицам)
+    var totalReportPages: Int {
+        let total = allReportItems.count
+        return max(1, (total + itemsPerPage - 1) / itemsPerPage)
+    }
+    
+    // Проверка, можно ли перейти на следующую страницу (по теплицам)
+    var canGoToNextReportPage: Bool {
+        currentReportPage < totalReportPages
+    }
+    
+    // Проверка, можно ли перейти на предыдущую страницу (по теплицам)
+    var canGoToPreviousReportPage: Bool {
+        currentReportPage > 1
+    }
+    
+    // Перейти на следующую страницу (по теплицам)
+    func nextReportPage() {
+        if canGoToNextReportPage {
+            currentReportPage += 1
+        }
+    }
+    
+    // Перейти на предыдущую страницу (по теплицам)
+    func previousReportPage() {
+        if canGoToPreviousReportPage {
+            currentReportPage -= 1
+        }
+    }
+    
+    // Все события рабочих (отсортированные)
+    var allWorkerEventsSorted: [WaterEventOut] {
+        return allWorkers.flatMap { worker in
+            workerEvents[worker.id] ?? []
+        }.sorted { $0.created_at > $1.created_at }
+    }
+    
+    // Пагинированные события рабочих
+    var paginatedWorkerEvents: [WaterEventOut] {
+        let all = allWorkerEventsSorted
+        let startIndex = (currentWorkerPage - 1) * itemsPerPage
+        let endIndex = min(startIndex + itemsPerPage, all.count)
+        guard startIndex < all.count else { return [] }
+        return Array(all[startIndex..<endIndex])
+    }
+    
+    // Общее количество страниц (по рабочим)
+    var totalWorkerPages: Int {
+        let total = allWorkerEventsSorted.count
+        return max(1, (total + itemsPerPage - 1) / itemsPerPage)
+    }
+    
+    // Проверка, можно ли перейти на следующую страницу (по рабочим)
+    var canGoToNextWorkerPage: Bool {
+        currentWorkerPage < totalWorkerPages
+    }
+    
+    // Проверка, можно ли перейти на предыдущую страницу (по рабочим)
+    var canGoToPreviousWorkerPage: Bool {
+        currentWorkerPage > 1
+    }
+    
+    // Перейти на следующую страницу (по рабочим)
+    func nextWorkerPage() {
+        if canGoToNextWorkerPage {
+            currentWorkerPage += 1
+        }
+    }
+    
+    // Перейти на предыдущую страницу (по рабочим)
+    func previousWorkerPage() {
+        if canGoToPreviousWorkerPage {
+            currentWorkerPage -= 1
+        }
+    }
+    
+    // Сброс пагинации при переключении вкладок
+    func resetPagination() {
+        currentReportPage = 1
+        currentWorkerPage = 1
+    }
+    
+    func getUserName(userId: String) -> String {
+        return allUsers[userId]?.name ?? "Неизвестно"
+    }
+    
+    func getUser(userId: String) -> UserOut? {
+        return allUsers[userId]
+    }
+    
+    func getPlantTypeName(plantInstanceId: String?) -> String {
+        guard let plantInstanceId = plantInstanceId,
+              let plantInstance = allPlantInstances[plantInstanceId],
+              let plantType = allPlantTypes[plantInstance.plant_type_id] else {
+            return "—"
+        }
+        return plantType.name
+    }
+    
+    func getGreenhouseName(greenhouseId: String) -> String {
+        return allGreenhouses.first(where: { $0.id == greenhouseId })?.name ?? "Неизвестно"
+    }
+}
+
+// MARK: - Summary Report Item
+enum SummaryReportItem: Identifiable {
+    case event(WaterEventOut)
+    case report(OverdueReportOut)
+    
+    var id: String {
+        switch self {
+        case .event(let event):
+            return event.id
+        case .report(let report):
+            return report.id
+        }
+    }
+    
+    var createdAt: Date {
+        switch self {
+        case .event(let event):
+            return parseSummaryDate(event.created_at) ?? Date()
+        case .report(let report):
+            return parseSummaryDate(report.created_at) ?? Date()
+        }
+    }
+}
+
+private func parseSummaryDate(_ dateString: String) -> Date? {
+    var isoFormatter = ISO8601DateFormatter()
+    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = isoFormatter.date(from: dateString) { return date }
+    
+    isoFormatter.formatOptions = [.withInternetDateTime]
+    if let date = isoFormatter.date(from: dateString) { return date }
+    
+    if dateString.contains("T") {
+        let parts = dateString.split(separator: "T")
+        guard parts.count == 2 else { return nil }
+        
+        let datePart = String(parts[0])
+        var timePart = String(parts[1]).replacingOccurrences(of: "Z", with: "")
+        
+        if let dotIndex = timePart.firstIndex(of: ".") {
+            timePart = String(timePart[..<dotIndex])
+        }
+        
+        if !timePart.contains(":") {
+            timePart = timePart.count == 1 ? "0\(timePart):00:00" : "\(timePart):00:00"
+        } else {
+            let components = timePart.split(separator: ":")
+            if components.count == 2 {
+                timePart = "\(timePart):00"
+            }
+        }
+        
+        let fixed = "\(datePart)T\(timePart)"
+        let parser = DateFormatter()
+        parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        return parser.date(from: fixed)
+    }
+    
+    return nil
+}
+
+// MARK: - Summary By Greenhouses View
+struct SummaryByGreenhousesView: View {
+    @ObservedObject var viewModel: SummaryViewModel
+    @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if viewModel.allReportItems.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.gray)
+                    Text("Нет данных")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 32)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Заголовок таблицы
+                        HStack(spacing: 0) {
+                            Text("Тип")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            Text("Дата и время")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            Text("Детали")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            Text("Тип растения")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 12)
+                        .background(Color(.secondarySystemBackground))
+                        
+                        // Строки таблицы (пагинированные)
+                        ForEach(viewModel.paginatedReportItems) { item in
+                            switch item {
+                            case .event(let event):
+                                ReportRowView(
+                                    event: event,
+                                    userName: viewModel.getUserName(userId: event.user_id),
+                                    plantTypeName: viewModel.getPlantTypeName(plantInstanceId: event.plant_instance_id),
+                                    userId: event.user_id,
+                                    user: viewModel.getUser(userId: event.user_id)
+                                )
+                                .environmentObject(bleManager)
+                                .environmentObject(sensorDataManager)
+                                .environmentObject(wateringDataManager)
+                                .environmentObject(fertilizingDataManager)
+                            case .report(let report):
+                                OverdueReportRowView(report: report)
+                            }
+                        }
+                        
+                        // Навигация по страницам
+                        HStack {
+                            Button(action: {
+                                viewModel.previousReportPage()
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "chevron.left")
+                                    Text("Назад")
+                                }
+                                .font(.subheadline)
+                                .foregroundColor(viewModel.canGoToPreviousReportPage ? DesignColor.mainAccent : .gray)
+                            }
+                            .disabled(!viewModel.canGoToPreviousReportPage)
+                            
+                            Spacer()
+                            
+                            Text("Страница \(viewModel.currentReportPage) из \(viewModel.totalReportPages)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                viewModel.nextReportPage()
+                            }) {
+                                HStack(spacing: 4) {
+                                    Text("Вперед")
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.subheadline)
+                                .foregroundColor(viewModel.canGoToNextReportPage ? DesignColor.mainAccent : .gray)
+                            }
+                            .disabled(!viewModel.canGoToNextReportPage)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 12)
+                        .background(Color(.secondarySystemBackground))
+                    }
+                }
+                .padding(.top, 16)
+            }
+        }
+        .padding(.horizontal)
+    }
+}
+
+// MARK: - Summary By Workers View
+struct SummaryByWorkersView: View {
+    @ObservedObject var viewModel: SummaryViewModel
+    @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if viewModel.allWorkers.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.gray)
+                    Text("Нет рабочих")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 32)
+            } else {
+                if viewModel.allWorkerEventsSorted.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "doc.text.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.gray)
+                        Text("Нет данных")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            // Заголовок таблицы
+                            HStack(spacing: 0) {
+                                Text("Действие")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                Text("Когда")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                Text("В какой теплице")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                Text("Тип растения")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 12)
+                            .background(Color(.secondarySystemBackground))
+                            
+                            // Строки таблицы для всех рабочих (пагинированные)
+                            ForEach(viewModel.paginatedWorkerEvents) { event in
+                                WorkerReportRowView(
+                                    event: event,
+                                    greenhouseName: viewModel.getGreenhouseName(greenhouseId: event.greenhouse_id),
+                                    plantTypeName: viewModel.getPlantTypeName(plantInstanceId: event.plant_instance_id),
+                                    greenhouseId: event.greenhouse_id
+                                )
+                                .environmentObject(bleManager)
+                                .environmentObject(sensorDataManager)
+                                .environmentObject(wateringDataManager)
+                                .environmentObject(fertilizingDataManager)
+                            }
+                            
+                            // Навигация по страницам
+                            HStack {
+                                Button(action: {
+                                    viewModel.previousWorkerPage()
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "chevron.left")
+                                        Text("Назад")
+                                    }
+                                    .font(.subheadline)
+                                    .foregroundColor(viewModel.canGoToPreviousWorkerPage ? DesignColor.mainAccent : .gray)
+                                }
+                                .disabled(!viewModel.canGoToPreviousWorkerPage)
+                                
+                                Spacer()
+                                
+                                Text("Страница \(viewModel.currentWorkerPage) из \(viewModel.totalWorkerPages)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    viewModel.nextWorkerPage()
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Text("Вперед")
+                                        Image(systemName: "chevron.right")
+                                    }
+                                    .font(.subheadline)
+                                    .foregroundColor(viewModel.canGoToNextWorkerPage ? DesignColor.mainAccent : .gray)
+                                }
+                                .disabled(!viewModel.canGoToNextWorkerPage)
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 12)
+                            .background(Color(.secondarySystemBackground))
+                        }
+                    }
+                    .padding(.top, 16)
+                }
+            }
+        }
+        .padding(.horizontal)
     }
 }
 
