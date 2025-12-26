@@ -95,7 +95,6 @@ struct HomeView: View {
     @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var viewModel = HomeViewModel()
-    @State private var showDeviceList = false
     @State private var showProfile = false
 
     var body: some View {
@@ -229,78 +228,89 @@ struct HomeView: View {
                         }
                     }
 
-                    // Состояние Bluetooth
-                    switch manager.bluetoothState {
-                    case .unauthorized:
-                        Text("Нет доступа к Bluetooth. Разреши доступ в Настройки → Конфиденциальность → Bluetooth.")
-                            .font(.footnote)
-                            .foregroundColor(.red)
-                            .multilineTextAlignment(.center)
+                    // Блок "Подключенные датчики"
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Заголовок блока
+                        HStack(alignment: .center, spacing: 12) {
+                            Text("Подключенные датчики")
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                            
+                            Spacer()
+                        }
+                        .padding(.horizontal)
+                        
+                        // Контент блока
+                        if viewModel.isLoading {
+                            // Состояние загрузки
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                    .padding(.vertical, 32)
+                                Spacer()
+                            }
+                        } else if viewModel.greenhousesWithSensors.isEmpty {
+                            // Пустое состояние
+                            HStack(spacing: 8) {
+                                Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.gray)
+                                
+                                Text("Нет подключенных датчиков")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
                             .padding(.horizontal)
-                    case .poweredOff:
-                        Text("Bluetooth выключен. Включи Bluetooth на устройстве.")
-                            .font(.footnote)
-                            .foregroundColor(.orange)
+                        } else if viewModel.greenhousesWithSensors.count == 1 {
+                            // Если один датчик - показываем на всю ширину
+                            ForEach(viewModel.greenhousesWithSensors, id: \.id) { greenhouse in
+                                SensorCardView(
+                                    greenhouse: greenhouse,
+                                    onDisconnect: {
+                                        // Обновляем данные после отключения
+                                        Task {
+                                            await viewModel.loadData(
+                                                bleManager: manager,
+                                                sensorDataManager: sensorDataManager,
+                                                wateringDataManager: wateringDataManager,
+                                                fertilizingDataManager: fertilizingDataManager
+                                            )
+                                        }
+                                    }
+                                )
+                            }
                             .padding(.horizontal)
-                    default:
-                        EmptyView()
-                    }
-
-                    // Выбранное/автоматически подключённое устройство
-                    if let device = manager.lastConnectedDevice {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Подключено: \(device.name)")
-                                .font(.headline)
-                                .padding(.horizontal)
-
-                            if let sensor = manager.sensors[device.id] {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(String(format: "Температура: %.2f °C", sensor.temperature))
-                                    Text(String(format: "Влажность: %.0f %%", sensor.humidity))
-                                    Text("Батарея: \(sensor.batteryPercent)%")
-                                    Text(String(format: "Напряжение: %.3f V", sensor.batteryVoltage))
-                                    Text("RSSI: \(sensor.rssi) dBm")
-                                        .font(.footnote)
-                                        .foregroundColor(.secondary)
+                        } else {
+                            // Горизонтальный скролл карточек для нескольких датчиков
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(viewModel.greenhousesWithSensors, id: \.id) { greenhouse in
+                                        SensorCardView(
+                                            greenhouse: greenhouse,
+                                            onDisconnect: {
+                                                // Обновляем данные после отключения
+                                                Task {
+                                                    await viewModel.loadData(
+                                                        bleManager: manager,
+                                                        sensorDataManager: sensorDataManager,
+                                                        wateringDataManager: wateringDataManager,
+                                                        fertilizingDataManager: fertilizingDataManager
+                                                    )
+                                                }
+                                            }
+                                        )
+                                        .frame(width: 320)
+                                    }
                                 }
                                 .padding(.horizontal)
-                            } else {
-                                Text("Нет данных от датчика. Подожди пару секунд после подключения.")
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal)
                             }
-                            
-                            // Кнопка отключения
-                            Button("Отключить") {
-                                manager.disconnect()
-                            }
-                            .buttonStyle(.bordered)
-                            .foregroundColor(.red)
-                            .padding(.horizontal)
                         }
-                    } else {
-                        Text("Устройство не выбрано")
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal)
                     }
-
-                    // Кнопка ручного выбора устройства (если нужно сменить)
-                    Button("Найти устройства") {
-                        manager.startScan(disableAutoConnect: true)
-                        showDeviceList = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .padding(.horizontal)
                 }
                 .padding(.vertical)
-            }
-            .sheet(isPresented: $showDeviceList) {
-                DeviceListView(manager: manager) { device in
-                    manager.stopScan()
-                    manager.connect(to: device)
-                }
             }
             .sheet(isPresented: $showProfile) {
                 ProfileView()
@@ -346,6 +356,16 @@ struct HomeView: View {
                     )
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GreenhouseUpdated"))) { _ in
+                Task {
+                    await viewModel.loadData(
+                        bleManager: manager,
+                        sensorDataManager: sensorDataManager,
+                        wateringDataManager: wateringDataManager,
+                        fertilizingDataManager: fertilizingDataManager
+                    )
+                }
+            }
         }
     }
 }
@@ -356,6 +376,16 @@ class HomeViewModel: ObservableObject {
     @Published var greenhousesRequiringAttention: [GreenhouseOut] = []
     @Published var allGreenhouses: [GreenhouseOut] = []
     @Published var isLoading = false
+    
+    // Получаем теплицы с привязанными датчиками
+    var greenhousesWithSensors: [GreenhouseOut] {
+        allGreenhouses.filter { greenhouse in
+            if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
+                return true
+            }
+            return false
+        }
+    }
     
     func loadData(
         bleManager: BLEManager,
@@ -1105,6 +1135,162 @@ struct FlatGreenhouseCardView: View {
             activeOperations.remove(plantInstanceId)
             globalOperationLock.unlock()
             print("🔓 fertilizePlant: Блокировка снята после ошибки для растения \(plantInstanceId)")
+        }
+    }
+}
+
+// MARK: - Sensor Card View
+struct SensorCardView: View {
+    let greenhouse: GreenhouseOut
+    let onDisconnect: () -> Void
+    
+    @StateObject private var authManager = AuthManager.shared
+    @StateObject private var bleManager = BLEManager()
+    @State private var isDisconnecting = false
+    @State private var errorMessage: String?
+    
+    // Проверяем, является ли пользователь администратором
+    private var isAdmin: Bool {
+        authManager.currentUser?.role == "admin"
+    }
+    
+    // Название датчика (используем sensor_id или можно использовать имя теплицы)
+    private var sensorName: String {
+        if let sensorId = greenhouse.sensor_id {
+            return "Датчик \(sensorId.prefix(8))"
+        }
+        return "Датчик"
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Верхняя часть: иконка датчика, название датчика и теплицы
+            HStack(spacing: 12) {
+                // Иконка датчика
+                ZStack {
+                    Circle()
+                        .fill(DesignColor.mainAccent.opacity(0.1))
+                        .frame(width: 60, height: 60)
+                    
+                    Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(DesignColor.mainAccent)
+                }
+                
+                // Название датчика и теплицы
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(sensorName)
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                    
+                    Text(greenhouse.name)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+            
+            // Разделитель
+            Divider()
+                .background(Color.gray.opacity(0.2))
+                .padding(.horizontal, 16)
+            
+            // Кнопка отключения (только для админа)
+            if isAdmin {
+                Button(action: {
+                    Task {
+                        await disconnectSensor()
+                    }
+                }) {
+                    if isDisconnecting {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Text("Отключить")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(DesignColor.mainRed)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(DesignColor.mainRed.opacity(0.1))
+                .cornerRadius(10)
+                .disabled(isDisconnecting)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+            }
+            
+            // Сообщение об ошибке
+            if let error = errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(DesignColor.mainRed)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+            }
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
+        )
+    }
+    
+    private func disconnectSensor() async {
+        await MainActor.run {
+            isDisconnecting = true
+            errorMessage = nil
+        }
+        
+        // Проверяем, нужно ли отключаться от устройства
+        let savedBLEIdentifier = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+        var shouldDisconnect = false
+        if let connectedDevice = bleManager.lastConnectedDevice,
+           let savedBLE = savedBLEIdentifier {
+            shouldDisconnect = connectedDevice.id.uuidString == savedBLE
+        }
+        
+        do {
+            // Отвязываем датчик от теплицы в БД
+            try await APIService.shared.unbindSensorFromGreenhouse(greenhouseId: greenhouse.id)
+            print("✅ Датчик успешно отвязан от теплицы в БД")
+            
+            // Отключаемся от устройства, если это датчик этой теплицы
+            if shouldDisconnect {
+                await MainActor.run {
+                    bleManager.disconnect()
+                }
+            }
+            
+            // Удаляем сохраненное соответствие
+            UserDefaults.standard.removeObject(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+            
+            // Вызываем callback для обновления данных
+            await MainActor.run {
+                isDisconnecting = false
+                onDisconnect()
+            }
+            
+            // Отправляем уведомление об обновлении
+            NotificationCenter.default.post(name: NSNotification.Name("GreenhouseUpdated"), object: nil)
+        } catch {
+            print("❌ Ошибка отвязки датчика: \(error)")
+            await MainActor.run {
+                isDisconnecting = false
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.detail
+                } else {
+                    errorMessage = "Ошибка отвязки датчика: \(error.localizedDescription)"
+                }
+            }
         }
     }
 }
