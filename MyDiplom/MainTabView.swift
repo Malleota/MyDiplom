@@ -228,8 +228,9 @@ struct HomeView: View {
                         }
                     }
 
-                    // Блок "Подключенные датчики"
-                    VStack(alignment: .leading, spacing: 12) {
+                    // Блок "Подключенные датчики" - только для админа
+                    if authManager.currentUser?.role == "admin" {
+                        VStack(alignment: .leading, spacing: 12) {
                         // Заголовок блока
                         HStack(alignment: .center, spacing: 12) {
                             Text("Подключенные датчики")
@@ -307,6 +308,7 @@ struct HomeView: View {
                                 }
                                 .padding(.horizontal)
                             }
+                        }
                         }
                     }
                 }
@@ -397,9 +399,10 @@ class HomeViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            // Загружаем все теплицы
+            // Загружаем теплицы (API автоматически фильтрует: админ видит все, рабочий - только привязанные)
             allGreenhouses = try await APIService.shared.getGreenhouses()
-            print("🏠 HomeViewModel: Загружено \(allGreenhouses.count) теплиц")
+            let userRole = AuthManager.shared.currentUser?.role ?? "unknown"
+            print("🏠 HomeViewModel: Загружено \(allGreenhouses.count) теплиц для пользователя с ролью \(userRole)")
             
             // Загружаем данные о поливах и удобрениях для всех теплиц
             for greenhouse in allGreenhouses {
@@ -1146,6 +1149,7 @@ struct SensorCardView: View {
     
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var bleManager = BLEManager()
+    @EnvironmentObject var sensorDataManager: SensorDataManager
     @State private var isDisconnecting = false
     @State private var errorMessage: String?
     
@@ -1250,12 +1254,15 @@ struct SensorCardView: View {
             errorMessage = nil
         }
         
-        // Проверяем, нужно ли отключаться от устройства
+        // Проверяем, нужно ли отключаться от устройства (до удаления соответствия)
         let savedBLEIdentifier = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
         var shouldDisconnect = false
         if let connectedDevice = bleManager.lastConnectedDevice,
            let savedBLE = savedBLEIdentifier {
             shouldDisconnect = connectedDevice.id.uuidString == savedBLE
+            print("🔍 Проверка отключения: connectedDevice=\(connectedDevice.id.uuidString), savedBLE=\(savedBLE), shouldDisconnect=\(shouldDisconnect)")
+        } else {
+            print("🔍 Проверка отключения: connectedDevice=\(bleManager.lastConnectedDevice?.id.uuidString ?? "nil"), savedBLE=\(savedBLEIdentifier ?? "nil")")
         }
         
         do {
@@ -1263,15 +1270,25 @@ struct SensorCardView: View {
             try await APIService.shared.unbindSensorFromGreenhouse(greenhouseId: greenhouse.id)
             print("✅ Датчик успешно отвязан от теплицы в БД")
             
-            // Отключаемся от устройства, если это датчик этой теплицы
+            // Отключаемся от устройства, если это датчик этой теплицы (до удаления соответствия)
             if shouldDisconnect {
+                print("🔌 Отключаемся от устройства...")
                 await MainActor.run {
                     bleManager.disconnect()
                 }
+                print("✅ Отключено от устройства")
+            } else {
+                print("ℹ️ Не отключаемся от устройства (это не датчик этой теплицы или устройство не подключено)")
             }
             
             // Удаляем сохраненное соответствие
             UserDefaults.standard.removeObject(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+            print("🗑️ Удалено соответствие из UserDefaults")
+            
+            // Очищаем данные датчика для этой теплицы
+            await MainActor.run {
+                sensorDataManager.clearSensorData(greenhouseId: greenhouse.id)
+            }
             
             // Вызываем callback для обновления данных
             await MainActor.run {
@@ -1287,8 +1304,10 @@ struct SensorCardView: View {
                 isDisconnecting = false
                 if let apiError = error as? APIError {
                     errorMessage = apiError.detail
+                    print("API Error detail: \(apiError.detail)")
                 } else {
                     errorMessage = "Ошибка отвязки датчика: \(error.localizedDescription)"
+                    print("General error: \(error.localizedDescription)")
                 }
             }
         }
