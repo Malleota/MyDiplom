@@ -469,8 +469,6 @@ struct HomeView: View {
     private func loadReports() async {
         guard let userId = authManager.currentUser?.id else { return }
         
-        print("📊 HomeView.loadReports: Начало загрузки отчетов для userId: \(userId)")
-        
         await MainActor.run {
             isLoadingReports = true
         }
@@ -478,8 +476,6 @@ struct HomeView: View {
         do {
             let watering = try await APIService.shared.getWateringEvents(userId: userId)
             let fertilizing = try await APIService.shared.getFertilizingEvents(userId: userId)
-            
-            print("📊 HomeView.loadReports: Загружено \(watering.count) событий полива и \(fertilizing.count) событий удобрения")
             
             await MainActor.run {
                 wateringEvents = watering
@@ -495,20 +491,15 @@ struct HomeView: View {
                 uniqueGreenhouseIds.insert(event.greenhouse_id)
             }
             
-            print("📊 HomeView.loadReports: Найдено \(uniqueGreenhouseIds.count) уникальных теплиц в событиях")
-            
             // Загружаем теплицы из событий (не только текущие привязанные)
             var allGreenhousesFromEvents: [GreenhouseOut] = []
             for greenhouseId in uniqueGreenhouseIds {
                 do {
                     let greenhouse = try await APIService.shared.getGreenhouse(id: greenhouseId)
                     allGreenhousesFromEvents.append(greenhouse)
-                    print("✅ HomeView.loadReports: Загружена теплица \(greenhouse.name) (id: \(greenhouseId))")
                 } catch {
                     // Если теплица недоступна (403), пропускаем её
-                    if let apiError = error as? APIError, apiError.detail.contains("доступа") || apiError.detail.contains("Access denied") {
-                        print("⚠️ HomeView.loadReports: Нет доступа к теплице \(greenhouseId), пропускаем")
-                    } else {
+                    if let apiError = error as? APIError, !(apiError.detail.contains("доступа") || apiError.detail.contains("Access denied")) {
                         print("❌ HomeView.loadReports: Ошибка загрузки теплицы \(greenhouseId): \(error)")
                     }
                 }
@@ -517,14 +508,12 @@ struct HomeView: View {
             await MainActor.run {
                 // Объединяем текущие теплицы с теплицами из событий
                 var allGreenhousesSet = Set(greenhouses.map { $0.id })
-                let initialCount = greenhouses.count
                 for gh in allGreenhousesFromEvents {
                     if !allGreenhousesSet.contains(gh.id) {
                         greenhouses.append(gh)
                         allGreenhousesSet.insert(gh.id)
                     }
                 }
-                print("📊 HomeView.loadReports: Объединено теплиц: было \(initialCount), стало \(greenhouses.count)")
             }
             
             // Загружаем растения из всех теплиц (и текущих, и из событий)
@@ -543,8 +532,6 @@ struct HomeView: View {
                 plantInstances = allPlantInstances
                 isLoadingReports = false
             }
-            
-            print("📊 HomeView.loadReports: Загружено \(allGreenhousesToLoad.count) теплиц и \(allPlantInstances.count) растений")
         } catch {
             print("❌ HomeView.loadReports: Ошибка загрузки отчетов: \(error)")
             await MainActor.run {
@@ -583,12 +570,9 @@ class HomeViewModel: ObservableObject {
         do {
             // Загружаем теплицы (API автоматически фильтрует: админ видит все, рабочий - только привязанные)
             allGreenhouses = try await APIService.shared.getGreenhouses()
-            let userRole = AuthManager.shared.currentUser?.role ?? "unknown"
-            print("🏠 HomeViewModel: Загружено \(allGreenhouses.count) теплиц для пользователя с ролью \(userRole)")
             
             // Загружаем данные о поливах и удобрениях для всех теплиц
             for greenhouse in allGreenhouses {
-                print("🏠 HomeViewModel: Загрузка данных для теплицы '\(greenhouse.name)'")
                 await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
                 await fertilizingDataManager.loadNextFertilizingForGreenhouse(greenhouse)
                 
@@ -616,8 +600,6 @@ class HomeViewModel: ObservableObject {
         wateringDataManager: WateringDataManager,
         fertilizingDataManager: FertilizingDataManager
     ) async {
-        print("🔍 HomeViewModel: Обновление списка требующих внимания. Всего теплиц: \(allGreenhouses.count)")
-        
         var requiringAttention: [GreenhouseOut] = []
         
         for greenhouse in allGreenhouses {
@@ -631,31 +613,11 @@ class HomeViewModel: ObservableObject {
             )
             
             if needsAttention {
-                print("⚠️ HomeViewModel: Теплица '\(greenhouse.name)' требует внимания")
-                if let watering = nextWatering {
-                    print("   - Полив: is_overdue=\(watering.is_overdue), days_until=\(watering.days_until?.description ?? "nil")")
-                }
-                if let fertilizing = nextFertilizing {
-                    print("   - Удобрение: is_overdue=\(fertilizing.is_overdue), days_until=\(fertilizing.days_until?.description ?? "nil")")
-                }
                 requiringAttention.append(greenhouse)
-            } else {
-                print("✅ HomeViewModel: Теплица '\(greenhouse.name)' не требует внимания")
-                if let watering = nextWatering {
-                    print("   - Полив: is_overdue=\(watering.is_overdue), days_until=\(watering.days_until?.description ?? "nil")")
-                } else {
-                    print("   - Полив: нет данных")
-                }
-                if let fertilizing = nextFertilizing {
-                    print("   - Удобрение: is_overdue=\(fertilizing.is_overdue), days_until=\(fertilizing.days_until?.description ?? "nil")")
-                } else {
-                    print("   - Удобрение: нет данных")
-                }
             }
         }
         
         greenhousesRequiringAttention = requiringAttention
-        print("🔍 HomeViewModel: Найдено теплиц, требующих внимания: \(greenhousesRequiringAttention.count)")
     }
     
     private func requiresAttention(
@@ -667,13 +629,11 @@ class HomeViewModel: ObservableObject {
         if let watering = nextWatering {
             // Просроченный полив - всегда требует внимания
             if watering.is_overdue {
-                print("   ✅ Требует внимания: полив просрочен")
                 return true
             }
             // Полив требуется сегодня (days_until == 0)
             if let daysUntil = watering.days_until {
                 if daysUntil == 0 {
-                    print("   ✅ Требует внимания: полив сегодня")
                     return true
                 }
             }
@@ -683,13 +643,11 @@ class HomeViewModel: ObservableObject {
         if let fertilizing = nextFertilizing {
             // Просроченное удобрение - всегда требует внимания
             if fertilizing.is_overdue {
-                print("   ✅ Требует внимания: удобрение просрочено")
                 return true
             }
             // Удобрение требуется сегодня (days_until == 0)
             if let daysUntil = fertilizing.days_until {
                 if daysUntil == 0 {
-                    print("   ✅ Требует внимания: удобрение сегодня")
                     return true
                 }
             }
@@ -1024,26 +982,22 @@ struct FlatGreenhouseCardView: View {
                             let isAlreadyActive = activeOperations.contains(plantInstanceId)
                             if !isAlreadyActive {
                                 activeOperations.insert(plantInstanceId)
-                                print("🔒 waterPlant: Блокировка установлена для растения \(plantInstanceId)")
                             }
                             globalOperationLock.unlock()
                             
                             if isAlreadyActive {
-                                print("⚠️ Кнопка 'Полить' заблокирована, операция уже выполняется для растения \(plantInstanceId)")
                                 return
                             }
                             
                             Task { @MainActor in
                                 // Дополнительная проверка на MainActor
                                 if isWatering || isFertilizing {
-                                    print("⚠️ waterPlant: Операция уже выполняется, пропускаем (внутри Task)")
                                     globalOperationLock.lock()
                                     activeOperations.remove(plantInstanceId)
                                     globalOperationLock.unlock()
                                     return
                                 }
                                 isWatering = true
-                                print("🔒 waterPlant: Флаг установлен в Task перед вызовом функции")
                                 
                                 await waterPlant()
                                 
@@ -1051,7 +1005,6 @@ struct FlatGreenhouseCardView: View {
                                 globalOperationLock.lock()
                                 activeOperations.remove(plantInstanceId)
                                 globalOperationLock.unlock()
-                                print("🔓 waterPlant: Блокировка снята для растения \(plantInstanceId)")
                             }
                         }) {
                             if isWatering {
@@ -1082,26 +1035,22 @@ struct FlatGreenhouseCardView: View {
                             let isAlreadyActive = activeOperations.contains(plantInstanceId)
                             if !isAlreadyActive {
                                 activeOperations.insert(plantInstanceId)
-                                print("🔒 fertilizePlant: Блокировка установлена для растения \(plantInstanceId)")
                             }
                             globalOperationLock.unlock()
                             
                             if isAlreadyActive {
-                                print("⚠️ Кнопка 'Удобрить' заблокирована, операция уже выполняется для растения \(plantInstanceId)")
                                 return
                             }
                             
                             Task { @MainActor in
                                 // Дополнительная проверка на MainActor
                                 if isWatering || isFertilizing {
-                                    print("⚠️ fertilizePlant: Операция уже выполняется, пропускаем (внутри Task)")
                                     globalOperationLock.lock()
                                     activeOperations.remove(plantInstanceId)
                                     globalOperationLock.unlock()
                                     return
                                 }
                                 isFertilizing = true
-                                print("🔒 fertilizePlant: Флаг установлен в Task перед вызовом функции")
                                 
                                 await fertilizePlant()
                                 
@@ -1109,7 +1058,6 @@ struct FlatGreenhouseCardView: View {
                                 globalOperationLock.lock()
                                 activeOperations.remove(plantInstanceId)
                                 globalOperationLock.unlock()
-                                print("🔓 fertilizePlant: Блокировка снята для растения \(plantInstanceId)")
                             }
                         }) {
                             if isFertilizing {
@@ -1177,46 +1125,36 @@ struct FlatGreenhouseCardView: View {
     
     private func waterPlant() async {
         guard let plantInstanceId = plantInstanceId else {
-            print("❌ waterPlant: plantInstanceId отсутствует")
             await MainActor.run {
                 isWatering = false
             }
             return
         }
         
-        print("🔵 waterPlant: Начало выполнения для растения \(plantInstanceId)")
-        
         // Дополнительная проверка на случай, если флаг не был установлен в обработчике
         let shouldProceed = await MainActor.run {
             if isFertilizing {
-                print("⚠️ waterPlant: Операция удобрения уже выполняется, пропускаем вызов")
                 isWatering = false
                 return false
             }
             if !isWatering {
-                print("⚠️ waterPlant: Флаг не установлен, устанавливаем сейчас")
                 isWatering = true
             }
             errorMessage = nil
-            print("✅ waterPlant: Флаг проверен/установлен, начинаем создание события")
             return true
         }
         
         guard shouldProceed else {
-            print("❌ waterPlant: Вызов заблокирован, выходим")
             return
         }
         
         do {
-            print("💧 waterPlant: Вызываем createWateringEvent для растения \(plantInstanceId)")
             _ = try await APIService.shared.createWateringEvent(
                 greenhouseId: greenhouse.id,
                 plantInstanceId: plantInstanceId,
                 type: "watering",
                 comment: nil
             )
-            
-            print("✅ Полив успешно выполнен для растения \(plantInstanceId)")
             
             // Ждем немного, чтобы сервер успел пересчитать данные о поливе
             try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда (как на экране теплицы)
@@ -1251,52 +1189,41 @@ struct FlatGreenhouseCardView: View {
             globalOperationLock.lock()
             activeOperations.remove(plantInstanceId)
             globalOperationLock.unlock()
-            print("🔓 waterPlant: Блокировка снята после ошибки для растения \(plantInstanceId)")
         }
     }
     
     private func fertilizePlant() async {
         guard let plantInstanceId = plantInstanceId else {
-            print("❌ fertilizePlant: plantInstanceId отсутствует")
             await MainActor.run {
                 isFertilizing = false
             }
             return
         }
         
-        print("🟢 fertilizePlant: Начало выполнения для растения \(plantInstanceId)")
-        
         // Дополнительная проверка на случай, если флаг не был установлен в обработчике
         let shouldProceed = await MainActor.run {
             if isWatering {
-                print("⚠️ fertilizePlant: Операция полива уже выполняется, пропускаем вызов")
                 isFertilizing = false
                 return false
             }
             if !isFertilizing {
-                print("⚠️ fertilizePlant: Флаг не установлен, устанавливаем сейчас")
                 isFertilizing = true
             }
             errorMessage = nil
-            print("✅ fertilizePlant: Флаг проверен/установлен, начинаем создание события")
             return true
         }
         
         guard shouldProceed else {
-            print("❌ fertilizePlant: Вызов заблокирован, выходим")
             return
         }
         
         do {
-            print("🌿 fertilizePlant: Вызываем createWateringEvent для растения \(plantInstanceId)")
             _ = try await APIService.shared.createWateringEvent(
                 greenhouseId: greenhouse.id,
                 plantInstanceId: plantInstanceId,
                 type: "fertilizing",
                 comment: nil
             )
-            
-            print("✅ Удобрение успешно выполнено для растения \(plantInstanceId)")
             
             // Ждем немного, чтобы сервер успел пересчитать данные об удобрении
             try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда (как на экране теплицы)
@@ -1331,7 +1258,6 @@ struct FlatGreenhouseCardView: View {
             globalOperationLock.lock()
             activeOperations.remove(plantInstanceId)
             globalOperationLock.unlock()
-            print("🔓 fertilizePlant: Блокировка снята после ошибки для растения \(plantInstanceId)")
         }
     }
 }
@@ -1447,30 +1373,21 @@ struct SensorCardView: View {
         if let connectedDevice = bleManager.lastConnectedDevice,
            let savedBLE = savedBLEIdentifier {
             shouldDisconnect = connectedDevice.id.uuidString == savedBLE
-            print("🔍 Проверка отключения: connectedDevice=\(connectedDevice.id.uuidString), savedBLE=\(savedBLE), shouldDisconnect=\(shouldDisconnect)")
-        } else {
-            print("🔍 Проверка отключения: connectedDevice=\(bleManager.lastConnectedDevice?.id.uuidString ?? "nil"), savedBLE=\(savedBLEIdentifier ?? "nil")")
         }
         
         do {
             // Отвязываем датчик от теплицы в БД
             try await APIService.shared.unbindSensorFromGreenhouse(greenhouseId: greenhouse.id)
-            print("✅ Датчик успешно отвязан от теплицы в БД")
             
             // Отключаемся от устройства, если это датчик этой теплицы (до удаления соответствия)
             if shouldDisconnect {
-                print("🔌 Отключаемся от устройства...")
                 await MainActor.run {
                     bleManager.disconnect()
                 }
-                print("✅ Отключено от устройства")
-            } else {
-                print("ℹ️ Не отключаемся от устройства (это не датчик этой теплицы или устройство не подключено)")
             }
             
             // Удаляем сохраненное соответствие
             UserDefaults.standard.removeObject(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
-            print("🗑️ Удалено соответствие из UserDefaults")
             
             // Очищаем данные датчика для этой теплицы
             await MainActor.run {
@@ -1491,10 +1408,8 @@ struct SensorCardView: View {
                 isDisconnecting = false
                 if let apiError = error as? APIError {
                     errorMessage = apiError.detail
-                    print("API Error detail: \(apiError.detail)")
                 } else {
                     errorMessage = "Ошибка отвязки датчика: \(error.localizedDescription)"
-                    print("General error: \(error.localizedDescription)")
                 }
             }
         }

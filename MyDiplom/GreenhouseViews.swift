@@ -3625,35 +3625,19 @@ struct GreenhouseDetailView: View {
             
             // Загружаем отчёты с фильтром по текущей теплице
             var reports = try await APIService.shared.getOverdueReports(greenhouseId: greenhouseId, resolved: nil)
-            print("📊 loadReports: Загружено \(reports.count) отчётов для теплицы \(greenhouseId)")
             
             // Если для текущей теплицы нет отчётов, загружаем все доступные отчёты
             // (пользователь может хотеть видеть отчёты для других теплиц)
             if reports.isEmpty {
-                print("📊 loadReports: Для текущей теплицы отчётов нет, загружаем все доступные отчёты...")
                 let allReports = try await APIService.shared.getOverdueReports(greenhouseId: nil, resolved: nil)
-                print("📊 loadReports: Всего доступных отчётов: \(allReports.count)")
                 reports = allReports
-                
-                // Логируем все отчёты для диагностики
-                for report in allReports {
-                    print("📊 loadReports: Доступный отчёт - id=\(report.id), greenhouse_id=\(report.greenhouse_id), name=\(report.greenhouse_name ?? "nil"), type=\(report.report_type)")
-                }
-            }
-            
-            // Логируем загруженные отчёты
-            print("📊 loadReports: Итого загружено \(reports.count) отчётов для отображения")
-            for report in reports {
-                print("📊 loadReports: Отчёт - id=\(report.id), greenhouse_id=\(report.greenhouse_id), name=\(report.greenhouse_name ?? "nil"), type=\(report.report_type), days_overdue=\(report.days_overdue)")
             }
             
             await MainActor.run {
                 wateringEvents = watering
                 fertilizingEvents = fertilizing
                 overdueReports = reports
-                print("📊 loadReports: Данные обновлены в UI. Всего элементов: \(allReportItems.count)")
             }
-            print("📊 loadReports: Загружено \(watering.count) событий полива, \(fertilizing.count) событий удобрения и \(reports.count) отчетов о просрочках")
         } catch {
             print("❌ Ошибка загрузки отчетов: \(error)")
             if let apiError = error as? APIError {

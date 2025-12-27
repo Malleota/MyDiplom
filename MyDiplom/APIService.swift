@@ -1763,19 +1763,6 @@ class APIService {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 30.0
         
-        print("📡 getOverdueReports: Запрос отчетов о просрочках")
-        print("📡 getOverdueReports: URL = \(url.absoluteString)")
-        print("📡 getOverdueReports: greenhouseId параметр = \(greenhouseId ?? "nil")")
-        print("📡 getOverdueReports: queryItems count = \(queryItems.count)")
-        for item in queryItems {
-            print("📡 getOverdueReports: queryItem - \(item.name) = \(item.value ?? "nil")")
-        }
-        if let resolved = resolved {
-            print("📡 getOverdueReports: Параметр resolved = \(resolved)")
-        } else {
-            print("📡 getOverdueReports: Параметр resolved = nil (будут загружены все отчёты)")
-        }
-        
         let (data, response) = try await URLSession.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -1783,31 +1770,14 @@ class APIService {
             throw APIError(detail: "Неверный ответ сервера")
         }
         
-        print("📡 getOverdueReports: Статус ответа = \(httpResponse.statusCode)")
-        
         if httpResponse.statusCode == 200 {
             let decoder = JSONDecoder()
             // OverdueReportOut использует snake_case поля, поэтому keyDecodingStrategy не нужен
             do {
                 let reports = try decoder.decode([OverdueReportOut].self, from: data)
-                print("✅ getOverdueReports: Получено \(reports.count) отчетов о просрочках")
-                
-                // Логируем ответ сервера для отладки
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("📡 getOverdueReports: Ответ сервера: \(responseString)")
-                }
-                
-                // Логируем каждый отчёт
-                for report in reports {
-                    print("📊 Отчёт: id=\(report.id), greenhouse_id=\(report.greenhouse_id), report_type=\(report.report_type), days_overdue=\(report.days_overdue)")
-                }
-                
                 return reports
             } catch {
                 print("❌ getOverdueReports: Ошибка декодирования: \(error)")
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("❌ getOverdueReports: Ответ сервера: \(responseString.prefix(500))")
-                }
                 throw APIError(detail: "Ошибка декодирования данных: \(error.localizedDescription)")
             }
         } else if httpResponse.statusCode == 401 {

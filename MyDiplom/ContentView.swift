@@ -258,19 +258,15 @@ struct ContentView: View {
                 userRole = authManager.currentUser?.role
                 
                 if let user = authManager.currentUser, user.role == "worker" {
-                    print("✅ ContentView: Пользователь является рабочим, загружаем отчет")
                     await loadGreenhouses()
                     await loadPlantTypes()
                     await loadReports()
-                } else {
-                    print("ℹ️ ContentView: Пользователь не является рабочим (роль: \(authManager.currentUser?.role ?? "nil"))")
                 }
             }
             .onChange(of: authManager.currentUser?.role) { newRole in
                 userRole = newRole
                 Task {
                     if newRole == "worker" {
-                        print("✅ ContentView: Роль изменилась на worker, загружаем отчет")
                         await loadGreenhouses()
                         await loadPlantTypes()
                         await loadReports()
@@ -330,11 +326,8 @@ struct ContentView: View {
     
     private func loadReports() async {
         guard let userId = authManager.currentUser?.id else {
-            print("❌ ContentView.loadReports: Нет userId")
             return
         }
-        
-        print("📊 ContentView.loadReports: Начало загрузки отчетов для userId: \(userId)")
         
         await MainActor.run {
             isLoadingReports = true
@@ -343,8 +336,6 @@ struct ContentView: View {
         do {
             let watering = try await APIService.shared.getWateringEvents(userId: userId)
             let fertilizing = try await APIService.shared.getFertilizingEvents(userId: userId)
-            
-            print("📊 ContentView.loadReports: Загружено \(watering.count) событий полива и \(fertilizing.count) событий удобрения")
             
             await MainActor.run {
                 wateringEvents = watering

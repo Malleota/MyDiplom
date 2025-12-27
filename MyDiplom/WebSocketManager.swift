@@ -31,7 +31,6 @@ class WebSocketManager: ObservableObject {
     /// Подключается к WebSocket для конкретной теплицы
     func connect(greenhouseId: String) {
         guard self.greenhouseId != greenhouseId || !isConnected else {
-            print("🔌 WebSocket: Уже подключен к теплице \(greenhouseId)")
             return
         }
         
@@ -44,7 +43,6 @@ class WebSocketManager: ObservableObject {
     /// Подключается к WebSocket для всех теплиц (только для админов)
     func connectForAll() {
         guard !isAdmin || !isConnected else {
-            print("🔌 WebSocket: Уже подключен для всех теплиц")
             return
         }
         
@@ -56,7 +54,6 @@ class WebSocketManager: ObservableObject {
     
     /// Отключается от WebSocket
     func disconnect() {
-        print("🔌 WebSocket: Отключение...")
         reconnectTask?.cancel()
         reconnectTask = nil
         heartbeatTask?.cancel()
@@ -97,8 +94,6 @@ class WebSocketManager: ObservableObject {
             connectionError = "Неверный URL"
             return
         }
-        
-        print("🔌 WebSocket: Подключение к \(urlString)")
         
         let session = URLSession(configuration: .default)
         let task = session.webSocketTask(with: url)
@@ -165,7 +160,6 @@ class WebSocketManager: ObservableObject {
             
             switch type {
             case "connected":
-                print("✅ WebSocket: Подключено успешно")
                 isConnected = true
                 connectionError = nil
                 
@@ -177,10 +171,8 @@ class WebSocketManager: ObservableObject {
                 handleSensorDataUpdate(json)
                 
             case "watering_event_created":
-                // Данные о поливах обновляются автоматически на бэкенде, просто логируем
-                if let greenhouseId = json?["greenhouse_id"] as? String {
-                    print("💧 WebSocket: Событие полива создано для теплицы \(greenhouseId), данные обновлены автоматически на бэкенде")
-                }
+                // Данные о поливах обновляются автоматически на бэкенде
+                break
                 
             default:
                 print("⚠️ WebSocket: Неизвестный тип сообщения: \(type)")
@@ -209,8 +201,6 @@ class WebSocketManager: ObservableObject {
             humidity: humidity,
             created_at: timestamp
         )
-        
-        print("📡 WebSocket: Получены данные датчика для теплицы \(greenhouseId): temp=\(temperature), hum=\(humidity)")
         
         // Вызываем callback
         onSensorDataUpdate?(greenhouseId, sensorReading)
@@ -244,8 +234,6 @@ class WebSocketManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             
             guard !Task.isCancelled else { return }
-            
-            print("🔄 WebSocket: Попытка переподключения...")
             
             if isAdmin {
                 connectForAll()

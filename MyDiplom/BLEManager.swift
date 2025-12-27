@@ -231,7 +231,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             } else {
                 devices.append(dev)
             }
-            print("FOUND DEVICE:", name, "RSSI:", RSSI.intValue)
         }
     }
 
@@ -294,9 +293,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                     didUpdateNotificationStateFor characteristic: CBCharacteristic,
                     error: Error?) {
         if let error = error {
-            print("notify state error:", error.localizedDescription)
-        } else {
-            print("notify state changed for", characteristic.uuid, "isNotifying =", characteristic.isNotifying)
+            print("❌ BLE: notify state error:", error.localizedDescription)
         }
     }
 
@@ -319,11 +316,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             DispatchQueue.main.async {
                 self.sensors[peripheral.identifier] = sensor
             }
-
-            print("UPDATE SENSOR:",
-                  "T=", sensor.temperature,
-                  "H=", sensor.humidity,
-                  "Bat=", sensor.batteryPercent, "%", sensor.batteryVoltage, "V")
             
             // Отправляем данные на сервер в фоновом режиме
             let bleIdentifier = peripheral.identifier.uuidString
