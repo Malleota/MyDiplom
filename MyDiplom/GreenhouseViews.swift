@@ -249,7 +249,6 @@ struct GreenhouseListView: View {
         
         do {
             try await APIService.shared.deleteGreenhouse(id: greenhouse.id)
-            print("✅ Теплица \(greenhouse.name) успешно удалена")
             
             // Очищаем данные для удаленной теплицы
             await MainActor.run {
@@ -598,8 +597,6 @@ class GreenhouseListViewModel: ObservableObject {
         
         do {
             let fetchedGreenhouses = try await APIService.shared.getGreenhouses()
-            let userRole = AuthManager.shared.currentUser?.role ?? "unknown"
-            print("📥 loadGreenhouses: Загружено \(fetchedGreenhouses.count) теплиц для пользователя с ролью \(userRole)")
             
             // Если это не принудительная перезагрузка, обновляем только измененные теплицы
             // чтобы не пересоздавать NavigationLink и не закрывать открытый экран
@@ -648,7 +645,6 @@ class GreenhouseListViewModel: ObservableObject {
                     // Получаем сохраненный ble_identifier для этой теплицы
                     if let bleIdentifier = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier") {
                         boundSensorIdentifiers.append(bleIdentifier)
-                        print("📋 Найден привязанный датчик для теплицы \(greenhouse.name): \(bleIdentifier)")
                     }
                 }
             }
@@ -683,7 +679,6 @@ class GreenhouseListViewModel: ObservableObject {
             
             // Если есть сохраненный ble_identifier и он совпадает с подключенным устройством
             if let savedBLE = savedBLEIdentifier, savedBLE == connectedDeviceUUID {
-                print("📡 Используем данные из BLE для теплицы \(greenhouse.name) (совпадение по ble_identifier)")
                 return SensorReadingOut(
                     id: "",
                     sensor_id: greenhouse.sensor_id ?? "",
@@ -697,7 +692,6 @@ class GreenhouseListViewModel: ObservableObject {
             // Если нет сохраненного ble_identifier, но устройство подключено и у теплицы есть sensor_id
             // Предполагаем, что это тот же датчик (для обратной совместимости)
             if savedBLEIdentifier == nil {
-                print("📡 Используем данные из BLE для теплицы \(greenhouse.name) (нет сохраненного ble_identifier)")
                 return SensorReadingOut(
                     id: "",
                     sensor_id: greenhouse.sensor_id ?? "",
@@ -1016,12 +1010,10 @@ class CreateGreenhouseViewModel: ObservableObject {
         
         do {
             availableImages = try await APIService.shared.getGreenhouseImages()
-            print("📸 loadImages: Загружено \(availableImages.count) изображений")
             
             // Предвыбираем первую картинку
             if !availableImages.isEmpty && selectedImageId == nil {
                 selectedImageId = availableImages.first?.id
-                print("📸 loadImages: Предвыбрано изображение с ID: \(selectedImageId ?? "nil")")
             }
         } catch {
             print("❌ Ошибка загрузки изображений: \(error)")
@@ -1051,7 +1043,6 @@ class CreateGreenhouseViewModel: ObservableObject {
         
         do {
             availableWorkers = try await APIService.shared.getWorkers()
-            print("👷 loadWorkers: Загружено \(availableWorkers.count) рабочих")
         } catch {
             print("❌ Ошибка загрузки рабочих: \(error)")
             // Не показываем ошибку как критическую, просто логируем
@@ -1123,7 +1114,6 @@ class CreateGreenhouseViewModel: ObservableObject {
         
         do {
             _ = try await APIService.shared.createGreenhouse(greenhouseCreate)
-            print("✅ Теплица успешно создана")
             isSuccess = true
             
             // Отправляем уведомление об обновлении списка теплиц
@@ -1610,7 +1600,6 @@ class EditGreenhouseViewModel: ObservableObject {
             plantInstances = try await APIService.shared.getPlantInstances(greenhouseId: greenhouse.id)
             originalPlantInstanceIds = Set(plantInstances.map { $0.id })
             originalPlantQuantities = Dictionary(uniqueKeysWithValues: plantInstances.map { ($0.id, $0.quantity) })
-            print("🌱 loadPlants: Загружено \(plantInstances.count) растений")
         } catch {
             print("❌ Ошибка загрузки растений: \(error)")
         }
@@ -1631,7 +1620,6 @@ class EditGreenhouseViewModel: ObservableObject {
         do {
             workers = try await APIService.shared.getGreenhouseWorkers(greenhouseId: greenhouse.id)
             originalWorkerIds = Set(workers.map { $0.id })
-            print("👷 loadWorkers: Загружено \(workers.count) работников")
         } catch {
             print("❌ Ошибка загрузки работников: \(error)")
             // Не критично, просто логируем
@@ -1644,7 +1632,6 @@ class EditGreenhouseViewModel: ObservableObject {
         
         do {
             availableWorkers = try await APIService.shared.getWorkers()
-            print("👷 loadAvailableWorkers: Загружено \(availableWorkers.count) доступных работников")
         } catch {
             print("❌ Ошибка загрузки доступных работников: \(error)")
         }
@@ -1669,7 +1656,6 @@ class EditGreenhouseViewModel: ObservableObject {
             let newQuantity = existingPlant.quantity + 1
             updatePlantQuantity(plantInstanceId: existingPlant.id, quantity: newQuantity)
             removeNewPlant(at: index)
-            print("✅ Количество существующего растения увеличено на 1: \(existingPlant.id)")
         } else {
             // Растения нет - просто обновляем тип в новом элементе
             var updatedPlants = newPlants
@@ -1723,7 +1709,6 @@ class EditGreenhouseViewModel: ObservableObject {
         
         do {
             availableImages = try await APIService.shared.getGreenhouseImages()
-            print("📸 loadImages: Загружено \(availableImages.count) изображений")
             
             // Находим и выбираем текущее изображение теплицы
             if let imageUrl = greenhouse.image_url {
@@ -1735,18 +1720,15 @@ class EditGreenhouseViewModel: ObservableObject {
                 }) {
                     selectedImageId = currentImage.id
                     originalImageId = currentImage.id
-                    print("📸 loadImages: Найдено текущее изображение с ID: \(currentImage.id)")
                 } else if !availableImages.isEmpty && selectedImageId == nil {
                     // Если не нашли, предвыбираем первую картинку
                     selectedImageId = availableImages.first?.id
                     originalImageId = availableImages.first?.id
-                    print("📸 loadImages: Предвыбрано изображение с ID: \(selectedImageId ?? "nil")")
                 }
             } else if !availableImages.isEmpty && selectedImageId == nil {
                 // Если у теплицы нет изображения, предвыбираем первую картинку
                 selectedImageId = availableImages.first?.id
                 originalImageId = availableImages.first?.id
-                print("📸 loadImages: Предвыбрано изображение с ID: \(selectedImageId ?? "nil")")
             }
         } catch {
             print("❌ Ошибка загрузки изображений: \(error)")
@@ -1788,7 +1770,6 @@ class EditGreenhouseViewModel: ObservableObject {
             )
             
             _ = try await APIService.shared.updateGreenhouse(id: greenhouse.id, greenhouseUpdate)
-            print("✅ Основные данные теплицы обновлены")
             
             // 2. Добавляем новые растения или увеличиваем количество существующих
             for newPlant in newPlants {
@@ -1814,7 +1795,6 @@ class EditGreenhouseViewModel: ObservableObject {
                     )
                     // Обновляем локальное состояние
                     updatePlantQuantity(plantInstanceId: existingPlant.id, quantity: newQuantity)
-                    print("✅ Количество растения увеличено: \(existingPlant.id)")
                 } else {
                     // Растения нет - добавляем новое
                     let plantCreate = PlantInstanceCreate(
@@ -1823,7 +1803,6 @@ class EditGreenhouseViewModel: ObservableObject {
                         note: nil
                     )
                     _ = try await APIService.shared.addPlantInstance(greenhouseId: greenhouse.id, plant: plantCreate)
-                    print("✅ Растение добавлено")
                 }
             }
             
@@ -1846,7 +1825,6 @@ class EditGreenhouseViewModel: ObservableObject {
                         plantInstanceId: plantInstance.id,
                         update: update
                     )
-                    print("✅ Количество растения обновлено: \(plantInstance.id)")
                 }
             }
             
@@ -1855,7 +1833,6 @@ class EditGreenhouseViewModel: ObservableObject {
             let deletedPlantIds = originalPlantInstanceIds.subtracting(currentPlantIds)
             for deletedId in deletedPlantIds {
                 try await APIService.shared.deletePlantInstance(greenhouseId: greenhouse.id, plantInstanceId: deletedId)
-                print("✅ Растение удалено")
             }
             
             // 5. Обновляем работников
@@ -1865,15 +1842,11 @@ class EditGreenhouseViewModel: ObservableObject {
             
             for addedId in addedWorkerIds {
                 try await APIService.shared.bindWorkerToGreenhouse(greenhouseId: greenhouse.id, userId: addedId)
-                print("✅ Работник привязан")
             }
             
             for removedId in removedWorkerIds {
                 try await APIService.shared.unbindWorkerFromGreenhouse(greenhouseId: greenhouse.id, userId: removedId)
-                print("✅ Работник отвязан")
             }
-            
-            print("✅ Теплица успешно обновлена")
             isSuccess = true
             
             // Отправляем уведомление об обновлении списка теплиц
@@ -3022,7 +2995,6 @@ struct GreenhouseDetailView: View {
                     .padding()
             } else {
                 // Отладочная информация
-                let _ = print("📊 reportsTabContent: isLoadingReports=\(isLoadingReports), events=\(wateringEvents.count)+\(fertilizingEvents.count), reports=\(overdueReports.count), allItems=\(allReportItems.count)")
                 
                 if allReportItems.isEmpty {
                     VStack(spacing: 12) {
@@ -3599,29 +3571,15 @@ struct GreenhouseDetailView: View {
     }
     
     private func loadReports() async {
-        print("📊 loadReports: Начало загрузки отчетов для теплицы \(greenhouseId)")
-        
-        // Логируем роль пользователя
-        if let currentUser = AuthManager.shared.currentUser {
-            print("📊 loadReports: Пользователь: \(currentUser.name), роль: \(currentUser.role), id: \(currentUser.id)")
-        }
-        
         isLoadingReports = true
         defer { isLoadingReports = false }
         
         do {
             // Загружаем события полива
-            print("📊 loadReports: Загрузка событий полива...")
             let watering = try await APIService.shared.getWateringEvents(greenhouseId: greenhouseId)
-            print("📊 loadReports: Загружено \(watering.count) событий полива")
             
             // Загружаем события удобрения
-            print("📊 loadReports: Загрузка событий удобрения...")
             let fertilizing = try await APIService.shared.getFertilizingEvents(greenhouseId: greenhouseId)
-            print("📊 loadReports: Загружено \(fertilizing.count) событий удобрения")
-            
-            // Загружаем отчеты о просрочках
-            print("📊 loadReports: Загрузка отчетов о просрочках для greenhouseId=\(greenhouseId)...")
             
             // Загружаем отчёты с фильтром по текущей теплице
             var reports = try await APIService.shared.getOverdueReports(greenhouseId: greenhouseId, resolved: nil)
@@ -3640,14 +3598,10 @@ struct GreenhouseDetailView: View {
             }
         } catch {
             print("❌ Ошибка загрузки отчетов: \(error)")
-            if let apiError = error as? APIError {
-                print("❌ API Error detail: \(apiError.detail)")
-            }
             await MainActor.run {
                 wateringEvents = []
                 fertilizingEvents = []
                 overdueReports = []
-                print("📊 loadReports: Данные очищены из-за ошибки")
             }
         }
     }
@@ -3655,7 +3609,6 @@ struct GreenhouseDetailView: View {
     private func loadGreenhouse() async {
         do {
             let fetched = try await APIService.shared.getGreenhouse(id: greenhouseId)
-            print("📥 loadGreenhouse: Загружена теплица \(fetched.name), sensor_id=\(fetched.sensor_id ?? "nil")")
             await MainActor.run {
                 greenhouse = fetched
             }
@@ -3744,7 +3697,6 @@ struct GreenhouseDetailView: View {
         // Если есть сохраненный ble_identifier и он совпадает с подключенным устройством
         if let savedBLE = savedBLEIdentifier, savedBLE == connectedDeviceUUID {
             // Используем данные из BLE
-            print("📡 updateSensorDataFromBLE: Обновляем данные из BLE для теплицы \(greenhouse.name) (совпадение по ble_identifier)")
             sensorData = SensorReadingOut(
                 id: "",
                 sensor_id: greenhouse.sensor_id ?? "",
@@ -3756,7 +3708,6 @@ struct GreenhouseDetailView: View {
         } else if savedBLEIdentifier == nil {
             // Если нет сохраненного ble_identifier, но устройство подключено
             // Предполагаем, что это тот же датчик (для обратной совместимости)
-            print("📡 updateSensorDataFromBLE: Обновляем данные из BLE для теплицы \(greenhouse.name) (нет сохраненного ble_identifier)")
             sensorData = SensorReadingOut(
                 id: "",
                 sensor_id: greenhouse.sensor_id ?? "",
@@ -3792,30 +3743,21 @@ struct GreenhouseDetailView: View {
         if let connectedDevice = bleManager.lastConnectedDevice,
            let savedBLE = savedBLEIdentifier {
             shouldDisconnect = connectedDevice.id.uuidString == savedBLE
-            print("🔍 Проверка отключения: connectedDevice=\(connectedDevice.id.uuidString), savedBLE=\(savedBLE), shouldDisconnect=\(shouldDisconnect)")
-        } else {
-            print("🔍 Проверка отключения: connectedDevice=\(bleManager.lastConnectedDevice?.id.uuidString ?? "nil"), savedBLE=\(savedBLEIdentifier ?? "nil")")
         }
         
         do {
             // Отвязываем датчик от теплицы в БД
             try await APIService.shared.unbindSensorFromGreenhouse(greenhouseId: greenhouse.id)
-            print("✅ Датчик успешно отвязан от теплицы в БД")
             
             // Отключаемся от устройства, если это датчик этой теплицы (до удаления соответствия)
             if shouldDisconnect {
-                print("🔌 Отключаемся от устройства...")
                 await MainActor.run {
                     bleManager.disconnect()
                 }
-                print("✅ Отключено от устройства")
-            } else {
-                print("ℹ️ Не отключаемся от устройства (это не датчик этой теплицы или устройство не подключено)")
             }
             
             // Удаляем сохраненное соответствие
             UserDefaults.standard.removeObject(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
-            print("🗑️ Удалено соответствие из UserDefaults")
             
             // Очищаем данные датчика для этой теплицы
             await MainActor.run {
@@ -3847,10 +3789,8 @@ struct GreenhouseDetailView: View {
             await MainActor.run {
                 if let apiError = error as? APIError {
                     errorMessage = apiError.detail
-                    print("API Error detail: \(apiError.detail)")
                 } else {
                     errorMessage = "Ошибка отвязки датчика: \(error.localizedDescription)"
-                    print("General error: \(error.localizedDescription)")
                 }
                 isUnbinding = false
             }
@@ -3867,7 +3807,6 @@ struct GreenhouseDetailView: View {
         // Привязываем устройство к теплице
         // Используем UUID устройства как ble_identifier
         let bleIdentifier = device.id.uuidString
-        print("Привязка датчика к теплице: greenhouseId=\(greenhouseId), bleIdentifier=\(bleIdentifier), deviceName=\(device.name)")
         
         do {
             try await APIService.shared.bindSensorToGreenhouse(
@@ -3875,12 +3814,9 @@ struct GreenhouseDetailView: View {
                 bleIdentifier: bleIdentifier
             )
             
-            print("Датчик успешно привязан к теплице")
-            
             // Сохраняем соответствие между теплицей и ble_identifier
             let bleIdentifier = device.id.uuidString
             UserDefaults.standard.set(bleIdentifier, forKey: "greenhouse_\(greenhouseId)_ble_identifier")
-            print("💾 Сохранено соответствие: greenhouse_\(greenhouseId) -> \(bleIdentifier)")
             
             // Подключаемся к устройству через BLE
             print("Подключение к устройству через BLE...")
@@ -4161,26 +4097,22 @@ struct PlantCardView: View {
                         let isAlreadyActive = activeOperations.contains(plantInstance.id)
                         if !isAlreadyActive {
                             activeOperations.insert(plantInstance.id)
-                            print("🔒 waterPlant: Блокировка установлена для растения \(plantInstance.id)")
                         }
                         globalOperationLock.unlock()
                         
                         if isAlreadyActive {
-                            print("⚠️ Кнопка 'Полить' заблокирована, операция уже выполняется для растения \(plantInstance.id)")
                             return
                         }
                         
                         Task { @MainActor in
                             // Дополнительная проверка на MainActor
                             if isWatering || isFertilizing {
-                                print("⚠️ waterPlant: Операция уже выполняется, пропускаем (внутри Task)")
                                 globalOperationLock.lock()
                                 activeOperations.remove(plantInstance.id)
                                 globalOperationLock.unlock()
                                 return
                             }
                             isWatering = true
-                            print("🔒 waterPlant: Флаг установлен в Task перед вызовом функции")
                             
                             await waterPlant()
                             
@@ -4188,7 +4120,6 @@ struct PlantCardView: View {
                             globalOperationLock.lock()
                             activeOperations.remove(plantInstance.id)
                             globalOperationLock.unlock()
-                            print("🔓 waterPlant: Блокировка снята для растения \(plantInstance.id)")
                         }
                     }) {
                         if isWatering {
@@ -4218,26 +4149,22 @@ struct PlantCardView: View {
                         let isAlreadyActive = activeOperations.contains(plantInstance.id)
                         if !isAlreadyActive {
                             activeOperations.insert(plantInstance.id)
-                            print("🔒 fertilizePlant: Блокировка установлена для растения \(plantInstance.id)")
                         }
                         globalOperationLock.unlock()
                         
                         if isAlreadyActive {
-                            print("⚠️ Кнопка 'Удобрить' заблокирована, операция уже выполняется для растения \(plantInstance.id)")
                             return
                         }
                         
                         Task { @MainActor in
                             // Дополнительная проверка на MainActor
                             if isWatering || isFertilizing {
-                                print("⚠️ fertilizePlant: Операция уже выполняется, пропускаем (внутри Task)")
                                 globalOperationLock.lock()
                                 activeOperations.remove(plantInstance.id)
                                 globalOperationLock.unlock()
                                 return
                             }
                             isFertilizing = true
-                            print("🔒 fertilizePlant: Флаг установлен в Task перед вызовом функции")
                             
                             await fertilizePlant()
                             
@@ -4245,7 +4172,6 @@ struct PlantCardView: View {
                             globalOperationLock.lock()
                             activeOperations.remove(plantInstance.id)
                             globalOperationLock.unlock()
-                            print("🔓 fertilizePlant: Блокировка снята для растения \(plantInstance.id)")
                         }
                     }) {
                         if isFertilizing {
@@ -4303,36 +4229,29 @@ struct PlantCardView: View {
         // (защита от прямого вызова функции)
         let shouldProceed = await MainActor.run {
             if isFertilizing {
-                print("⚠️ waterPlant: Операция удобрения уже выполняется, пропускаем вызов")
                 // Сбрасываем флаг полива, если он был установлен ошибочно
                 isWatering = false
                 return false
             }
             // Флаг уже должен быть установлен в обработчике кнопки
             if !isWatering {
-                print("⚠️ waterPlant: Флаг не установлен, устанавливаем сейчас")
             isWatering = true
             }
             errorMessage = nil
-            print("✅ waterPlant: Флаг проверен/установлен, начинаем создание события")
             return true
         }
         
         guard shouldProceed else {
-            print("❌ waterPlant: Вызов заблокирован, выходим")
             return
         }
         
         do {
-            print("💧 waterPlant: Вызываем createWateringEvent для растения \(plantInstance.id)")
             _ = try await APIService.shared.createWateringEvent(
                 greenhouseId: greenhouseId,
                 plantInstanceId: plantInstance.id,
                 type: "watering",
                 comment: nil
             )
-            
-            print("✅ Полив успешно выполнен для растения \(plantInstance.id)")
             
             // Ждем немного, чтобы сервер успел пересчитать данные о поливе
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
@@ -4358,47 +4277,37 @@ struct PlantCardView: View {
             globalOperationLock.lock()
             activeOperations.remove(plantInstance.id)
             globalOperationLock.unlock()
-            print("🔓 waterPlant: Блокировка снята после ошибки для растения \(plantInstance.id)")
         }
     }
     
     private func fertilizePlant() async {
-        print("🟢 fertilizePlant: Начало выполнения для растения \(plantInstance.id)")
-        
         // Дополнительная проверка на случай, если флаг не был установлен в обработчике
         // (защита от прямого вызова функции)
         let shouldProceed = await MainActor.run {
             if isWatering {
-                print("⚠️ fertilizePlant: Операция полива уже выполняется, пропускаем вызов")
                 // Сбрасываем флаг удобрения, если он был установлен ошибочно
                 isFertilizing = false
                 return false
             }
             // Флаг уже должен быть установлен в обработчике кнопки
             if !isFertilizing {
-                print("⚠️ fertilizePlant: Флаг не установлен, устанавливаем сейчас")
             isFertilizing = true
             }
             errorMessage = nil
-            print("✅ fertilizePlant: Флаг проверен/установлен, начинаем создание события")
             return true
         }
         
         guard shouldProceed else {
-            print("❌ fertilizePlant: Вызов заблокирован, выходим")
             return
         }
         
         do {
-            print("🌿 fertilizePlant: Вызываем createWateringEvent для растения \(plantInstance.id)")
             _ = try await APIService.shared.createWateringEvent(
                 greenhouseId: greenhouseId,
                 plantInstanceId: plantInstance.id,
                 type: "fertilizing",
                 comment: nil
             )
-            
-            print("✅ Удобрение успешно выполнено для растения \(plantInstance.id)")
             
             // Ждем немного, чтобы сервер успел пересчитать данные об удобрении
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
@@ -4424,7 +4333,6 @@ struct PlantCardView: View {
             globalOperationLock.lock()
             activeOperations.remove(plantInstance.id)
             globalOperationLock.unlock()
-            print("🔓 fertilizePlant: Блокировка снята после ошибки для растения \(plantInstance.id)")
         }
     }
 }
@@ -4642,8 +4550,6 @@ struct EditPlantView: View {
                 plantInstanceId: plantInstance.id,
                 update: update
             )
-            
-            print("✅ Растение успешно обновлено")
             
             await MainActor.run {
                 isSaving = false

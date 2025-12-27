@@ -49,24 +49,17 @@ class APIService {
         let bodyString = "username=\(email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&password=\(password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
         request.httpBody = bodyString.data(using: .utf8)
         
-        print("🔐 Login: Отправка запроса на \(url.absoluteString)")
-        print("🔐 Login: Body = username=\(email)&password=***")
-        
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            print("🔐 Login: Получен ответ от сервера")
             
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("❌ Login: Неверный ответ сервера (не HTTPURLResponse)")
                 throw APIError(detail: "Неверный ответ сервера")
             }
             
-            print("🔐 Login: Статус ответа = \(httpResponse.statusCode)")
-            
             if httpResponse.statusCode == 200 {
                 let decoder = JSONDecoder()
                 let tokenResponse = try decoder.decode(TokenResponse.self, from: data)
-                print("✅ Login: Авторизация успешна")
                 return tokenResponse
             } else if httpResponse.statusCode == 401 {
                 let decoder = JSONDecoder()
@@ -282,7 +275,6 @@ class APIService {
         if httpResponse.statusCode == 200 {
             let decoder = JSONDecoder()
             let greenhouses = try decoder.decode([GreenhouseOut].self, from: data)
-            print("✅ getGreenhouses: Получено \(greenhouses.count) теплиц для пользователя с ролью \(userRole)")
             if userRole == "worker" {
                 print("👷 getGreenhouses: Рабочий должен видеть только привязанные теплицы")
             }
@@ -471,8 +463,6 @@ class APIService {
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
-        print("📡 getCurrentSensorData: Запрос данных датчика для теплицы greenhouseId=\(greenhouseId), URL=\(url.absoluteString)")
-        
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             
@@ -481,12 +471,9 @@ class APIService {
                 return nil
             }
             
-            print("📡 getCurrentSensorData: Статус ответа = \(httpResponse.statusCode)")
-            
             if httpResponse.statusCode == 200 {
                 let decoder = JSONDecoder()
                 let sensorData = try decoder.decode(SensorReadingOut.self, from: data)
-                print("✅ getCurrentSensorData: Данные датчика получены: temp=\(sensorData.temperature), hum=\(sensorData.humidity)")
                 return sensorData
             } else if httpResponse.statusCode == 404 {
                 if let responseString = String(data: data, encoding: .utf8) {
@@ -529,8 +516,6 @@ class APIService {
         request.httpMethod = "DELETE"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
-        print("📡 unbindSensorFromGreenhouse: Отправка запроса на \(url.absoluteString)")
-        
         let (data, response) = try await URLSession.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -538,10 +523,7 @@ class APIService {
             throw APIError(detail: "Неверный ответ сервера")
         }
         
-        print("📡 unbindSensorFromGreenhouse: Статус ответа = \(httpResponse.statusCode)")
-        
         if httpResponse.statusCode == 204 {
-            print("✅ unbindSensorFromGreenhouse: Датчик успешно отвязан")
             return
         } else if httpResponse.statusCode == 401 {
             print("❌ unbindSensorFromGreenhouse: Ошибка 401 - Не авторизован")
@@ -582,9 +564,6 @@ class APIService {
         let encoder = JSONEncoder()
         request.httpBody = try encoder.encode(bindRequest)
         
-        print("📡 bindSensorToGreenhouse: Отправка запроса на \(url.absoluteString)")
-        print("📡 bindSensorToGreenhouse: ble_identifier=\(bleIdentifier)")
-        
         let (data, response) = try await URLSession.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -592,11 +571,7 @@ class APIService {
             throw APIError(detail: "Неверный ответ сервера")
         }
         
-        print("📡 bindSensorToGreenhouse: Статус ответа = \(httpResponse.statusCode)")
-        
         if httpResponse.statusCode == 204 {
-            // Успешно привязано
-            print("✅ bindSensorToGreenhouse: Датчик успешно привязан")
             return
         } else if httpResponse.statusCode == 400 {
             let decoder = JSONDecoder()
@@ -662,10 +637,7 @@ class APIService {
                 throw APIError(detail: "Неверный ответ сервера")
             }
             
-            print("📤 sendSensorData: Статус ответа = \(httpResponse.statusCode)")
-            
             if httpResponse.statusCode == 204 {
-                print("✅ sendSensorData: Данные успешно отправлены на сервер")
                 return
             } else if httpResponse.statusCode == 401 {
                 print("❌ sendSensorData: Ошибка 401 - Не авторизован")
@@ -710,8 +682,6 @@ class APIService {
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
-        print("📡 getNextWatering: Запрос данных о следующем поливе для теплицы \(greenhouseId)")
-        
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             
@@ -720,12 +690,9 @@ class APIService {
                 return nil
             }
             
-            print("📡 getNextWatering: Статус ответа = \(httpResponse.statusCode)")
-            
             if httpResponse.statusCode == 200 {
                 let decoder = JSONDecoder()
                 let nextWatering = try decoder.decode(NextWateringOut.self, from: data)
-                print("✅ getNextWatering: Данные о следующем поливе получены: days_until=\(nextWatering.days_until ?? -1)")
                 return nextWatering
             } else if httpResponse.statusCode == 404 {
                 if let responseString = String(data: data, encoding: .utf8) {
@@ -779,8 +746,6 @@ class APIService {
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
-        print("📡 getWateringEvents: Запрос событий полива")
-        
         let (data, response) = try await URLSession.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -788,14 +753,11 @@ class APIService {
             throw APIError(detail: "Неверный ответ сервера")
         }
         
-        print("📡 getWateringEvents: Статус ответа = \(httpResponse.statusCode)")
-        
         if httpResponse.statusCode == 200 {
             let decoder = JSONDecoder()
             let allEvents = try decoder.decode([WaterEventOut].self, from: data)
             // Фильтруем только события полива (сервер возвращает все события)
             let wateringEvents = allEvents.filter { $0.type == "watering" }
-            print("✅ getWateringEvents: Получено \(wateringEvents.count) событий полива (из \(allEvents.count) всего)")
             return wateringEvents
         } else if httpResponse.statusCode == 401 {
             print("❌ getWateringEvents: Ошибка 401 - Не авторизован")
@@ -848,7 +810,6 @@ class APIService {
         if httpResponse.statusCode == 201 {
             let decoder = JSONDecoder()
             let event = try decoder.decode(WaterEventOut.self, from: data)
-            print("✅ createWateringEvent: Событие полива успешно создано")
             return event
         } else if httpResponse.statusCode == 401 {
             print("❌ createWateringEvent: Ошибка 401 - Не авторизован")

@@ -216,7 +216,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
            targetId == peripheral.identifier,
            lastConnectedDevice == nil,
            !disableAutoConnect {
-            print("Found saved device:", name, "RSSI:", RSSI.intValue)
             autoConnectTimer?.invalidate()  // Отменяем таймаут
             stopScan()  // Останавливаем сканирование сразу после нахождения нужного устройства
             connect(to: dev)
@@ -236,7 +235,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     func centralManager(_ central: CBCentralManager,
                         didConnect peripheral: CBPeripheral) {
-        print("Connected to", peripheral.identifier)
         stopScan()
         peripheral.delegate = self
         peripheral.discoverServices(nil)
@@ -282,7 +280,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
         for ch in chars {
             if ch.uuid == tempHumidityUUID {
-                print("Found temp/humidity characteristic")
                 peripheral.setNotifyValue(true, for: ch)
                 peripheral.readValue(for: ch)
             }
