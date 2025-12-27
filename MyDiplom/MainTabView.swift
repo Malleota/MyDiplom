@@ -108,6 +108,14 @@ struct HomeView: View {
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var viewModel = HomeViewModel()
     @State private var showProfile = false
+    
+    // Состояния для отчета рабочего
+    @State private var wateringEvents: [WaterEventOut] = []
+    @State private var fertilizingEvents: [WaterEventOut] = []
+    @State private var isLoadingReports = false
+    @State private var greenhouses: [GreenhouseOut] = []
+    @State private var plantInstances: [PlantInstanceOut] = []
+    @State private var plantTypes: [String: PlantTypeOut] = [:]
 
     var body: some View {
         NavigationView {
@@ -333,13 +341,28 @@ struct HomeView: View {
                         }
                     }
                     
-                    // Блок "Отчеты" - только для админа
-                    if authManager.currentUser?.role == "admin" {
-                        ReportsBlockView()
+                    // Блок "Отчеты" - для админа и рабочего (в одном месте)
+                    if let user = authManager.currentUser {
+                        if user.role == "admin" {
+                            ReportsBlockView()
+                                .environmentObject(manager)
+                                .environmentObject(sensorDataManager)
+                                .environmentObject(wateringDataManager)
+                                .environmentObject(fertilizingDataManager)
+                        } else if user.role == "worker" {
+                            WorkerReportBlockView(
+                                wateringEvents: $wateringEvents,
+                                fertilizingEvents: $fertilizingEvents,
+                                isLoadingReports: $isLoadingReports,
+                                greenhouses: greenhouses,
+                                plantInstances: plantInstances,
+                                plantTypes: plantTypes
+                            )
                             .environmentObject(manager)
                             .environmentObject(sensorDataManager)
                             .environmentObject(wateringDataManager)
                             .environmentObject(fertilizingDataManager)
+                        }
                     }
                 }
                 .padding(.vertical, 32)
@@ -363,6 +386,12 @@ struct HomeView: View {
                     wateringDataManager: wateringDataManager,
                     fertilizingDataManager: fertilizingDataManager
                 )
+                // Загружаем отчет для рабочего
+                if let user = authManager.currentUser, user.role == "worker" {
+                    await loadGreenhouses()
+                    await loadPlantTypes()
+                    await loadReports()
+                }
             }
             .refreshable {
                 await viewModel.loadData(
@@ -371,6 +400,12 @@ struct HomeView: View {
                     wateringDataManager: wateringDataManager,
                     fertilizingDataManager: fertilizingDataManager
                 )
+                // Обновляем отчет для рабочего
+                if let user = authManager.currentUser, user.role == "worker" {
+                    await loadGreenhouses()
+                    await loadPlantTypes()
+                    await loadReports()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NextWateringUpdated"))) { _ in
                 Task {
@@ -397,6 +432,123 @@ struct HomeView: View {
                         fertilizingDataManager: fertilizingDataManager
                     )
                 }
+            }
+        }
+    }
+    
+    // MARK: - Helper Methods for Worker Reports
+    
+    private func loadGreenhouses() async {
+        guard let userId = authManager.currentUser?.id else { return }
+        
+        do {
+            let workerGreenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: userId)
+            await MainActor.run {
+                greenhouses = workerGreenhouses
+            }
+        } catch {
+            print("❌ HomeView.loadGreenhouses: Ошибка загрузки теплиц: \(error)")
+        }
+    }
+    
+    private func loadPlantTypes() async {
+        do {
+            let allPlantTypes = try await APIService.shared.getPlantTypes()
+            var typesDict: [String: PlantTypeOut] = [:]
+            for plantType in allPlantTypes {
+                typesDict[plantType.id] = plantType
+            }
+            await MainActor.run {
+                plantTypes = typesDict
+            }
+        } catch {
+            print("❌ HomeView.loadPlantTypes: Ошибка загрузки типов растений: \(error)")
+        }
+    }
+    
+    private func loadReports() async {
+        guard let userId = authManager.currentUser?.id else { return }
+        
+        print("📊 HomeView.loadReports: Начало загрузки отчетов для userId: \(userId)")
+        
+        await MainActor.run {
+            isLoadingReports = true
+        }
+        
+        do {
+            let watering = try await APIService.shared.getWateringEvents(userId: userId)
+            let fertilizing = try await APIService.shared.getFertilizingEvents(userId: userId)
+            
+            print("📊 HomeView.loadReports: Загружено \(watering.count) событий полива и \(fertilizing.count) событий удобрения")
+            
+            await MainActor.run {
+                wateringEvents = watering
+                fertilizingEvents = fertilizing
+            }
+            
+            // Собираем уникальные ID теплиц из всех событий
+            var uniqueGreenhouseIds = Set<String>()
+            for event in watering {
+                uniqueGreenhouseIds.insert(event.greenhouse_id)
+            }
+            for event in fertilizing {
+                uniqueGreenhouseIds.insert(event.greenhouse_id)
+            }
+            
+            print("📊 HomeView.loadReports: Найдено \(uniqueGreenhouseIds.count) уникальных теплиц в событиях")
+            
+            // Загружаем теплицы из событий (не только текущие привязанные)
+            var allGreenhousesFromEvents: [GreenhouseOut] = []
+            for greenhouseId in uniqueGreenhouseIds {
+                do {
+                    let greenhouse = try await APIService.shared.getGreenhouse(id: greenhouseId)
+                    allGreenhousesFromEvents.append(greenhouse)
+                    print("✅ HomeView.loadReports: Загружена теплица \(greenhouse.name) (id: \(greenhouseId))")
+                } catch {
+                    // Если теплица недоступна (403), пропускаем её
+                    if let apiError = error as? APIError, apiError.detail.contains("доступа") || apiError.detail.contains("Access denied") {
+                        print("⚠️ HomeView.loadReports: Нет доступа к теплице \(greenhouseId), пропускаем")
+                    } else {
+                        print("❌ HomeView.loadReports: Ошибка загрузки теплицы \(greenhouseId): \(error)")
+                    }
+                }
+            }
+            
+            await MainActor.run {
+                // Объединяем текущие теплицы с теплицами из событий
+                var allGreenhousesSet = Set(greenhouses.map { $0.id })
+                let initialCount = greenhouses.count
+                for gh in allGreenhousesFromEvents {
+                    if !allGreenhousesSet.contains(gh.id) {
+                        greenhouses.append(gh)
+                        allGreenhousesSet.insert(gh.id)
+                    }
+                }
+                print("📊 HomeView.loadReports: Объединено теплиц: было \(initialCount), стало \(greenhouses.count)")
+            }
+            
+            // Загружаем растения из всех теплиц (и текущих, и из событий)
+            var allPlantInstances: [PlantInstanceOut] = []
+            let allGreenhousesToLoad = await MainActor.run { greenhouses }
+            for greenhouse in allGreenhousesToLoad {
+                do {
+                    let instances = try await APIService.shared.getPlantInstances(greenhouseId: greenhouse.id)
+                    allPlantInstances.append(contentsOf: instances)
+                } catch {
+                    print("❌ HomeView.loadReports: Ошибка загрузки растений для теплицы \(greenhouse.id): \(error)")
+                }
+            }
+            
+            await MainActor.run {
+                plantInstances = allPlantInstances
+                isLoadingReports = false
+            }
+            
+            print("📊 HomeView.loadReports: Загружено \(allGreenhousesToLoad.count) теплиц и \(allPlantInstances.count) растений")
+        } catch {
+            print("❌ HomeView.loadReports: Ошибка загрузки отчетов: \(error)")
+            await MainActor.run {
+                isLoadingReports = false
             }
         }
     }
@@ -1067,18 +1219,24 @@ struct FlatGreenhouseCardView: View {
             print("✅ Полив успешно выполнен для растения \(plantInstanceId)")
             
             // Ждем немного, чтобы сервер успел пересчитать данные о поливе
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда (как на экране теплицы)
             
             // Обновляем данные
             await MainActor.run {
                 isWatering = false
             }
             
-            // Обновляем данные о поливе
+            // Обновляем данные о поливе для теплицы
             await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
             
-            // Отправляем уведомление об обновлении
+            // Делаем еще одну попытку обновления через небольшую задержку
+            // на случай, если сервер еще не успел пересчитать
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+            await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
+            
+            // Отправляем уведомления об обновлении
             NotificationCenter.default.post(name: NSNotification.Name("NextWateringUpdated"), object: nil)
+            NotificationCenter.default.post(name: NSNotification.Name("GreenhouseUpdated"), object: nil)
         } catch {
             print("❌ Ошибка полива: \(error)")
             await MainActor.run {
@@ -1141,18 +1299,24 @@ struct FlatGreenhouseCardView: View {
             print("✅ Удобрение успешно выполнено для растения \(plantInstanceId)")
             
             // Ждем немного, чтобы сервер успел пересчитать данные об удобрении
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда (как на экране теплицы)
             
             // Обновляем данные
             await MainActor.run {
                 isFertilizing = false
             }
             
-            // Обновляем данные об удобрении
+            // Обновляем данные об удобрении для теплицы
             await fertilizingDataManager.loadNextFertilizingForGreenhouse(greenhouse)
             
-            // Отправляем уведомление об обновлении
+            // Делаем еще одну попытку обновления через небольшую задержку
+            // на случай, если сервер еще не успел пересчитать
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 секунды
+            await fertilizingDataManager.loadNextFertilizingForGreenhouse(greenhouse)
+            
+            // Отправляем уведомления об обновлении
             NotificationCenter.default.post(name: NSNotification.Name("NextFertilizingUpdated"), object: nil)
+            NotificationCenter.default.post(name: NSNotification.Name("GreenhouseUpdated"), object: nil)
         } catch {
             print("❌ Ошибка удобрения: \(error)")
             await MainActor.run {
@@ -1334,6 +1498,166 @@ struct SensorCardView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Worker Report Block View (блок отчета рабочего)
+struct WorkerReportBlockView: View {
+    @Binding var wateringEvents: [WaterEventOut]
+    @Binding var fertilizingEvents: [WaterEventOut]
+    @Binding var isLoadingReports: Bool
+    let greenhouses: [GreenhouseOut]
+    let plantInstances: [PlantInstanceOut]
+    let plantTypes: [String: PlantTypeOut]
+    
+    @EnvironmentObject var manager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Заголовок блока
+            HStack(alignment: .center, spacing: 12) {
+                Text("Мой отчет")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                
+                Spacer()
+                
+                // Индикатор загрузки
+                if isLoadingReports {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                }
+            }
+            .padding(.horizontal)
+            
+            // Контент блока
+            if isLoadingReports {
+                // Состояние загрузки
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .padding(.vertical, 32)
+                    Spacer()
+                }
+            } else {
+                let allEvents = (wateringEvents + fertilizingEvents).sorted { event1, event2 in
+                    return event1.created_at > event2.created_at
+                }
+                
+                if allEvents.isEmpty {
+                    // Пустое состояние
+                    VStack(spacing: 12) {
+                        Image(systemName: "doc.text.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.gray)
+                        Text("Нет данных")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
+                } else {
+                    VStack(spacing: 0) {
+                        // Заголовок таблицы
+                        HStack(spacing: 0) {
+                            Text("Действие")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            Text("Когда")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            Text("Теплица")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            Text("Растение")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 12)
+                        .background(Color(.secondarySystemBackground))
+                        
+                        // Строки таблицы (показываем первые 5)
+                        ForEach(Array(allEvents.prefix(5))) { event in
+                            WorkerReportRowView(
+                                event: event,
+                                greenhouseName: getGreenhouseName(greenhouseId: event.greenhouse_id),
+                                plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id),
+                                greenhouseId: event.greenhouse_id
+                            )
+                            .environmentObject(manager)
+                            .environmentObject(sensorDataManager)
+                            .environmentObject(wateringDataManager)
+                            .environmentObject(fertilizingDataManager)
+                        }
+                        
+                        // Кнопка "Показать все" если событий больше 5
+                        if allEvents.count > 5 {
+                            Button(action: {
+                                // Можно добавить навигацию к полному отчету
+                            }) {
+                                Text("Показать все (\(allEvents.count))")
+                                    .font(.subheadline)
+                                    .foregroundColor(DesignColor.mainAccent)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                            }
+                        }
+                    }
+                    .padding(.top, 16)
+                }
+            }
+        }
+        .padding(.vertical, 16)
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .padding(.horizontal)
+    }
+    
+    private func getGreenhouseName(greenhouseId: String) -> String {
+        if let greenhouse = greenhouses.first(where: { $0.id == greenhouseId }) {
+            return greenhouse.name
+        }
+        // Логируем только если не найдено (чтобы не засорять логи)
+        if greenhouses.isEmpty {
+            print("⚠️ WorkerReportBlockView.getGreenhouseName: Список теплиц пуст для id \(greenhouseId)")
+        } else {
+            print("⚠️ WorkerReportBlockView.getGreenhouseName: Теплица с id \(greenhouseId) не найдена. Всего теплиц: \(greenhouses.count)")
+        }
+        return "—"
+    }
+    
+    private func getPlantTypeName(plantInstanceId: String?) -> String {
+        guard let plantInstanceId = plantInstanceId else {
+            return "—"
+        }
+        
+        if let plantInstance = plantInstances.first(where: { $0.id == plantInstanceId }) {
+            if let plantType = plantTypes[plantInstance.plant_type_id] {
+                return plantType.name
+            } else {
+                print("⚠️ WorkerReportBlockView.getPlantTypeName: Тип растения с id \(plantInstance.plant_type_id) не найден")
+            }
+        } else {
+            print("⚠️ WorkerReportBlockView.getPlantTypeName: Экземпляр растения с id \(plantInstanceId) не найден")
+        }
+        
+        return "—"
     }
 }
 
