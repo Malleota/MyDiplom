@@ -73,6 +73,18 @@ struct MainTabView: View {
                     .tag(3)
             }
         }
+        .onAppear {
+            // Настраиваем фон таб бара, чтобы он соответствовал системному фону
+            let tabBarAppearance = UITabBarAppearance()
+            tabBarAppearance.configureWithOpaqueBackground()
+            tabBarAppearance.backgroundColor = UIColor.systemBackground
+            tabBarAppearance.shadowColor = UIColor.separator
+            
+            UITabBar.appearance().standardAppearance = tabBarAppearance
+            if #available(iOS 15.0, *) {
+                UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+            }
+        }
         .onChange(of: isAdmin) { newValue in
             // Если пользователь больше не админ и выбран таб "Работники", переключаемся на главную
             if !newValue && selectedTab == 3 {
@@ -100,7 +112,7 @@ struct HomeView: View {
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 32) {
                     // Шапка с аватаром и приветствием
                     HStack(spacing: 12) {
                         Button(action: {
@@ -131,6 +143,15 @@ struct HomeView: View {
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
+
+                    // Блок "Сводка" - только для админа (выше всех блоков)
+                    if authManager.currentUser?.role == "admin" {
+                        SummaryStatisticsBlockView()
+                            .environmentObject(manager)
+                            .environmentObject(sensorDataManager)
+                            .environmentObject(wateringDataManager)
+                            .environmentObject(fertilizingDataManager)
+                    }
 
                     // Блок "Требуют внимания"
                     VStack(alignment: .leading, spacing: 12) {
@@ -263,10 +284,10 @@ struct HomeView: View {
                                     .foregroundColor(.secondary)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
+                            .padding(.vertical, 32)
                             .padding(.horizontal)
                         } else if viewModel.greenhousesWithSensors.count == 1 {
-                            // Если один датчик - показываем на всю ширину
+                            // Если один датчик - показываем на всю ширину с отступами
                             ForEach(viewModel.greenhousesWithSensors, id: \.id) { greenhouse in
                                 SensorCardView(
                                     greenhouse: greenhouse,
@@ -311,18 +332,18 @@ struct HomeView: View {
                         }
                         }
                     }
+                    
+                    // Блок "Отчеты" - только для админа
+                    if authManager.currentUser?.role == "admin" {
+                        ReportsBlockView()
+                            .environmentObject(manager)
+                            .environmentObject(sensorDataManager)
+                            .environmentObject(wateringDataManager)
+                            .environmentObject(fertilizingDataManager)
+                    }
                 }
-                
-                // Блок "Сводка" - только для админа
-                if authManager.currentUser?.role == "admin" {
-                    SummaryBlockView()
-                        .environmentObject(manager)
-                        .environmentObject(sensorDataManager)
-                        .environmentObject(wateringDataManager)
-                        .environmentObject(fertilizingDataManager)
-                }
+                .padding(.vertical, 32)
             }
-            .padding(.vertical)
             .sheet(isPresented: $showProfile) {
                 ProfileView()
                     .onDisappear {
@@ -803,7 +824,7 @@ struct FlatGreenhouseCardView: View {
                         Text("Полив:")
                             .font(.subheadline)
                             .fontWeight(.semibold)
-                            .foregroundColor(.primary)
+                            .foregroundColor(.primary.opacity(0.8))
                         
                         Text(wateringText)
                             .font(.subheadline)
@@ -819,13 +840,13 @@ struct FlatGreenhouseCardView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "pills")
                         .font(.system(size: 14))
-                        .foregroundColor(DesignColor.myBrown.opacity(0.8))
+                        .foregroundColor(.primary.opacity(0.8))
                     
                     HStack(spacing: 4) {
                         Text("Удобрение:")
                             .font(.subheadline)
                             .fontWeight(.semibold)
-                            .foregroundColor(.primary)
+                            .foregroundColor(.primary.opacity(0.8))
                         
                         Text(fertilizingText)
                             .font(.subheadline)
@@ -1183,38 +1204,27 @@ struct SensorCardView: View {
                 ZStack {
                     Circle()
                         .fill(DesignColor.mainAccent.opacity(0.1))
-                        .frame(width: 60, height: 60)
+                        .frame(width: 38, height: 38)
                     
                     Image(systemName: "sensor.tag.radiowaves.forward.fill")
-                        .font(.system(size: 24))
+                        .font(.system(size: 20))
                         .foregroundColor(DesignColor.mainAccent)
                 }
                 
                 // Название датчика и теплицы
                 VStack(alignment: .leading, spacing: 4) {
                     Text(sensorName)
-                        .font(.headline)
+                        .font(.subheadline)
                         .fontWeight(.bold)
                         .foregroundColor(.primary)
                     
                     Text(greenhouse.name)
-                        .font(.subheadline)
+                        .font(.footnote)
                         .foregroundColor(.secondary)
                 }
                 
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-            
-            // Разделитель
-            Divider()
-                .background(Color.gray.opacity(0.2))
-                .padding(.horizontal, 16)
-            
-            // Кнопка отключения (только для админа)
-            if isAdmin {
+                 Spacer()
+
                 Button(action: {
                     Task {
                         await disconnectSensor()
@@ -1222,25 +1232,28 @@ struct SensorCardView: View {
                 }) {
                     if isDisconnecting {
                         ProgressView()
-                            .scaleEffect(0.8)
+                            .scaleEffect(0.7)
                     } else {
                         Text("Отключить")
-                            .font(.subheadline)
+                            .font(.caption)
                             .fontWeight(.medium)
                             .foregroundColor(DesignColor.mainRed)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(DesignColor.mainRed.opacity(0.1))
-                .cornerRadius(10)
-                .disabled(isDisconnecting)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 16)
+                   .frame(maxWidth: 85)
+                    .padding(.vertical, 6)
+                    .background(DesignColor.mainRed.opacity(0.1))
+                    .cornerRadius(8)
+                    .disabled(isDisconnecting)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 4)
+                    .padding(.bottom, 8)        
+                
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
             
-            // Сообщение об ошибке
             if let error = errorMessage {
                 Text(error)
                     .font(.caption)
@@ -1249,11 +1262,12 @@ struct SensorCardView: View {
                     .padding(.bottom, 12)
             }
         }
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+            
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
         )
     }
     
@@ -1323,25 +1337,123 @@ struct SensorCardView: View {
     }
 }
 
-// MARK: - Summary Block View
-enum SummaryTab: String, CaseIterable {
-    case byGreenhouses = "По теплицам"
-    case byWorkers = "По рабочим"
-}
-
-struct SummaryBlockView: View {
+// MARK: - Summary Statistics Block View (новый блок "Сводка")
+struct SummaryStatisticsBlockView: View {
     @EnvironmentObject var bleManager: BLEManager
     @EnvironmentObject var sensorDataManager: SensorDataManager
     @EnvironmentObject var wateringDataManager: WateringDataManager
     @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     @StateObject private var viewModel = SummaryViewModel()
-    @State private var selectedTab: SummaryTab = .byGreenhouses
+    @State private var showDatePicker = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Заголовок блока с фильтром дат
+            HStack(alignment: .center, spacing: 12) {
+                Text("Сводка")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                
+                Spacer()
+                
+                // Фильтр по дате
+                Button(action: {
+                    showDatePicker = true
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                        Text(dateRangeText)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color(.quaternarySystemFill))
+                    .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal)
+            
+            // Контент (данные из SummaryGeneralView без фильтра)
+            if viewModel.isLoading {
+                HStack {
+                    Spacer()
+                    ProgressView("Загрузка данных...")
+                        .padding(.vertical, 32)
+                    Spacer()
+                }
+            } else {
+                SummaryGeneralView(viewModel: viewModel)
+            }
+        }
+        .sheet(isPresented: $showDatePicker) {
+            DateFilterView(
+                dateFrom: $viewModel.dateFrom,
+                dateTo: $viewModel.dateTo,
+                onApply: {
+                    Task {
+                        await viewModel.updateGeneralData()
+                    }
+                }
+            )
+        }
+        .task {
+            await viewModel.loadDataIfNeeded(for: .general)
+        }
+    }
+    
+    private var dateRangeText: String {
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: Date())
+        let fromYear = calendar.component(.year, from: viewModel.dateFrom)
+        let toYear = calendar.component(.year, from: viewModel.dateTo)
+        
+        // Показываем год, если выбран другой год или даты в разных годах
+        let showYear = fromYear != currentYear || toYear != currentYear || fromYear != toYear
+        
+        let dateFormatter = DateFormatter()
+        if showYear {
+            dateFormatter.dateFormat = "dd.MM.yy"
+        } else {
+            dateFormatter.dateFormat = "dd.MM"
+        }
+        
+        let fromString = dateFormatter.string(from: viewModel.dateFrom)
+        let toString = dateFormatter.string(from: viewModel.dateTo)
+        
+        return "\(fromString) – \(toString)"
+    }
+}
+
+// MARK: - Summary Tab Enum (для SummaryViewModel)
+enum SummaryTab: String, CaseIterable {
+    case general = "Общее"
+    case byGreenhouses = "По теплицам"
+    case byWorkers = "По рабочим"
+}
+
+// MARK: - Reports Block View (блок "Отчеты")
+enum ReportsTab: String, CaseIterable {
+    case byGreenhouses = "По теплицам"
+    case byWorkers = "По рабочим"
+}
+
+struct ReportsBlockView: View {
+    @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
+    @StateObject private var viewModel = SummaryViewModel()
+    @State private var selectedTab: ReportsTab = .byGreenhouses
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Заголовок блока
             HStack(alignment: .center, spacing: 12) {
-                Text("Сводка")
+                Text("Отчеты")
                     .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
@@ -1379,14 +1491,23 @@ struct SummaryBlockView: View {
         }
         .task {
             // При первой загрузке загружаем данные для текущей вкладки
-            await viewModel.loadData(for: selectedTab)
+            await viewModel.loadData(for: convertToSummaryTab(selectedTab))
         }
         .onChange(of: selectedTab) { newTab in
             viewModel.resetPagination()
             // Загружаем данные только для новой вкладки, если они еще не загружены
             Task {
-                await viewModel.loadDataIfNeeded(for: newTab)
+                await viewModel.loadDataIfNeeded(for: convertToSummaryTab(newTab))
             }
+        }
+    }
+    
+    private func convertToSummaryTab(_ tab: ReportsTab) -> SummaryTab {
+        switch tab {
+        case .byGreenhouses:
+            return .byGreenhouses
+        case .byWorkers:
+            return .byWorkers
         }
     }
 }
@@ -1412,11 +1533,28 @@ class SummaryViewModel: ObservableObject {
     // Флаги загруженных данных
     private var greenhousesDataLoaded = false
     private var workersDataLoaded = false
+    private var generalDataLoaded = false
     
     // Пагинация
     @Published var currentReportPage: Int = 1
     @Published var currentWorkerPage: Int = 1
     private let itemsPerPage = 10
+    
+    // Фильтр по дате для общей статистики (по умолчанию последние 7 дней)
+    @Published var dateFrom: Date = {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        return calendar.date(byAdding: .day, value: -7, to: today) ?? today
+    }()
+    @Published var dateTo: Date = {
+        let calendar = Calendar.current
+        return calendar.startOfDay(for: Date())
+    }()
+    
+    // Статистика для вкладки "Общее"
+    @Published var filteredWateringEvents: [WaterEventOut] = []
+    @Published var filteredFertilizingEvents: [WaterEventOut] = []
+    @Published var filteredOverdueReports: [OverdueReportOut] = []
     
     func loadData(for tab: SummaryTab? = nil) async {
         isLoading = true
@@ -1451,6 +1589,9 @@ class SummaryViewModel: ObservableObject {
             if let tab = tab {
                 // Загружаем только для текущей вкладки, если еще не загружено
                 switch tab {
+                case .general:
+                    await loadGeneralData()
+                    generalDataLoaded = true
                 case .byGreenhouses:
                     if !greenhousesDataLoaded {
                         await loadGreenhousesData()
@@ -1493,6 +1634,9 @@ class SummaryViewModel: ObservableObject {
         
         // Если базовые данные есть, загружаем только данные для вкладки, если нужно
         switch tab {
+        case .general:
+            await loadGeneralData()
+            generalDataLoaded = true
         case .byGreenhouses:
             if !greenhousesDataLoaded {
                 await loadGreenhousesData()
@@ -1504,6 +1648,34 @@ class SummaryViewModel: ObservableObject {
                 workersDataLoaded = true
             }
         }
+    }
+    
+    // Загрузка данных для вкладки "Общее"
+    func loadGeneralData() async {
+        // Форматируем даты для API
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let dateFromString = formatter.string(from: dateFrom)
+        let dateToString = formatter.string(from: dateTo)
+        
+        // Загружаем события с фильтром по дате параллельно
+        async let wateringTask = APIService.shared.getWateringEvents(dateFrom: dateFromString, dateTo: dateToString)
+        async let fertilizingTask = APIService.shared.getFertilizingEvents(dateFrom: dateFromString, dateTo: dateToString)
+        // Просрочки загружаем все (без фильтра по дате)
+        async let overdueTask = APIService.shared.getOverdueReports()
+        
+        do {
+            filteredWateringEvents = try await wateringTask
+            filteredFertilizingEvents = try await fertilizingTask
+            filteredOverdueReports = try await overdueTask
+        } catch {
+            print("❌ Ошибка загрузки данных для общей статистики: \(error)")
+        }
+    }
+    
+    // Обновление данных при изменении фильтра
+    func updateGeneralData() async {
+        await loadGeneralData()
     }
     
     // Загрузка данных для вкладки "По теплицам"
@@ -1914,6 +2086,180 @@ struct SummaryByGreenhousesView: View {
     }
 }
 
+// MARK: - Summary General View
+struct SummaryGeneralView: View {
+    @ObservedObject var viewModel: SummaryViewModel
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Карточки статистики
+            ScrollView {
+                VStack(spacing: 12) {
+                    // Первая строка: Всего работников и Всего теплиц
+                    HStack(spacing: 12) {
+                        StatisticCardView(
+                            title: "Всего рабочих",
+                            value: "\(viewModel.allWorkers.count)",
+                            icon: "person.2",
+                            borderColor: DesignColor.myPerple
+                        )
+                        
+                        StatisticCardView(
+                            title: "Всего теплиц",
+                            value: "\(viewModel.allGreenhouses.count)",
+                            icon: "building.2",
+                            borderColor: Color.green
+                        )
+                    }
+                    
+                    // Вторая строка: Выполнено поливов и Выполнено удобрений
+                    HStack(spacing: 12) {
+                        StatisticCardView(
+                            title: "Всего поливов",
+                            value: "\(viewModel.filteredWateringEvents.count)",
+                            icon: "drop",
+                            borderColor: DesignColor.myBlue
+                        )
+                        
+                        StatisticCardView(
+                            title: "Всего удобрений",
+                            value: "\(viewModel.filteredFertilizingEvents.count)",
+                            icon: "leaf",
+                            borderColor: DesignColor.myBrown
+                        )
+                    }
+                    
+                    // Третья строка: Просрочки поливов (одна карточка на всю ширину, значение справа)
+                    StatisticCardView(
+                        title: "Всего просрочек",
+                        value: "\(viewModel.filteredOverdueReports.count)",
+                        icon: "exclamationmark.triangle",
+                        borderColor: DesignColor.mainRed,
+                        fillColor: DesignColor.mainRed.opacity(0.1),
+                        isFullWidth: true,
+                        valueOnRight: true
+                    )
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+            }
+        }
+        .task {
+            await viewModel.loadDataIfNeeded(for: .general)
+        }
+    }
+}
+
+// MARK: - Statistic Card View
+struct StatisticCardView: View {
+    let title: String
+    let value: String
+    let icon: String
+    var borderColor: Color = DesignColor.mainAccent
+    var fillColor: Color? = nil
+    var isFullWidth: Bool = false
+    var valueOnRight: Bool = false
+    
+    var body: some View {
+        if valueOnRight {
+            // Для карточки просрочек: значение справа
+            HStack(alignment: .center, spacing: 12) {
+                // Иконка и заголовок слева
+                HStack(alignment: .center, spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(borderColor.opacity(0.8))
+                    
+                    Text(title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .tracking(-0.4)
+                }
+                
+                Spacer()
+                
+                // Значение справа
+                Text(value)
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundColor(Color.primary.opacity(0.8))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(16)
+            //.background(fillColor ?? Color(.systemBackground))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(UIColor.tertiarySystemFill), lineWidth: 2)
+            )
+        } else {
+            // Для остальных карточек: значение снизу
+            VStack(alignment: .leading, spacing: 12) {
+                // Иконка и заголовок
+                HStack(alignment: .center, spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(borderColor.opacity(0.8))
+                    
+                    Text(title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .tracking(-0.4)
+                }
+                
+                // Значение
+                Text(value)
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundColor(Color.primary.opacity(0.8))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(UIColor.tertiarySystemFill), lineWidth: 2)
+            )
+        }
+    }
+}
+
+// MARK: - Date Filter View
+struct DateFilterView: View {
+    @Binding var dateFrom: Date
+    @Binding var dateTo: Date
+    let onApply: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Период")) {
+                    DatePicker("От", selection: $dateFrom, displayedComponents: .date)
+                    DatePicker("До", selection: $dateTo, displayedComponents: .date)
+                }
+            }
+            .navigationTitle("Фильтр по дате")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Применить") {
+                        onApply()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Summary By Workers View
 struct SummaryByWorkersView: View {
     @ObservedObject var viewModel: SummaryViewModel
@@ -2084,5 +2430,3 @@ struct DeviceListView: View {
         }
     }
 }
-
-
