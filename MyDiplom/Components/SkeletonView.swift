@@ -98,3 +98,37 @@ struct GreenhouseDetailSkeleton: View {
     }
 }
 
+// MARK: - Plants View Skeleton
+struct PlantsViewSkeleton: View {
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(0..<3) { _ in
+                    HStack(spacing: 12) {
+                        // Изображение растения
+                        SkeletonView(width: 50, height: 50, cornerRadius: 8)
+                        
+                        // Информация о растении
+                        VStack(alignment: .leading, spacing: 4) {
+                            // Название (headline)
+                            SkeletonView(width: nil, height: 18, cornerRadius: 4)
+                            
+                            // Описание (caption, lineLimit: 2)
+                            //SkeletonView(width: nil, height: 14, cornerRadius: 4)
+                            SkeletonView(width: 200, height: 14, cornerRadius: 4)
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(12)
+                    .cardBorder()
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 16)
+        }
+    }
+}
+

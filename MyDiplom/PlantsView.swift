@@ -38,8 +38,7 @@ struct PlantsView: View {
             VStack(spacing: 0) {
                 // Список растений
                 if isLoading {
-                    ProgressView("Загрузка растений...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    PlantsViewSkeleton()
                 } else if let error = errorMessage {
                     VStack(spacing: 12) {
                         Image(systemName: "exclamationmark.triangle.fill")
