@@ -265,6 +265,7 @@ class APIService {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30.0
         
         let (data, response) = try await URLSession.shared.data(for: request)
         

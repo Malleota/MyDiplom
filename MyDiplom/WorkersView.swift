@@ -46,8 +46,7 @@ struct WorkersView: View {
                 
                 // Список пользователей
                 if isLoading {
-                    ProgressView("Загрузка пользователей...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    WorkersViewSkeleton()
                 } else if let error = errorMessage {
                     VStack(spacing: 12) {
                         Image(systemName: "exclamationmark.triangle.fill")

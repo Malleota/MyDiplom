@@ -2073,6 +2073,9 @@ class SummaryViewModel: ObservableObject {
     @Published var filteredOverdueReports: [OverdueReportOut] = []
     
     func loadData(for tab: SummaryTab? = nil) async {
+        // Проверяем, не отменена ли задача
+        guard !Task.isCancelled else { return }
+        
         isLoading = true
         defer { isLoading = false }
         
@@ -2090,6 +2093,9 @@ class SummaryViewModel: ObservableObject {
             allWorkers = try await workersTask
             let plantTypes = try await plantTypesTask
             allPlantTypes = Dictionary(uniqueKeysWithValues: plantTypes.map { ($0.id, $0) })
+            
+            // Проверяем отмену после загрузки базовых данных
+            guard !Task.isCancelled else { return }
             
             // Создаем словарь пользователей
             var usersDict: [String: UserOut] = [:]
@@ -2133,12 +2139,24 @@ class SummaryViewModel: ObservableObject {
             
             print("📊 SummaryViewModel: Загружено \(allWateringEvents.count) поливов, \(allFertilizingEvents.count) удобрений, \(allOverdueReports.count) отчетов")
         } catch {
+            // Игнорируем ошибку отмены - это нормальное поведение SwiftUI
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                print("ℹ️ SummaryViewModel: Запрос был отменен (это нормально)")
+                return
+            }
+            // Проверяем, не отменена ли задача
+            if Task.isCancelled {
+                return
+            }
             print("❌ SummaryViewModel: Ошибка загрузки данных: \(error)")
         }
     }
     
     // Загружает данные только если они еще не загружены (без установки isLoading)
     func loadDataIfNeeded(for tab: SummaryTab) async {
+        // Проверяем, не отменена ли задача
+        guard !Task.isCancelled else { return }
+        
         // Проверяем, нужно ли загружать базовые данные
         let needsBaseData = allGreenhouses.isEmpty || allWorkers.isEmpty || allPlantTypes.isEmpty
         
@@ -2147,6 +2165,9 @@ class SummaryViewModel: ObservableObject {
             await loadData(for: tab)
             return
         }
+        
+        // Проверяем отмену перед загрузкой данных вкладки
+        guard !Task.isCancelled else { return }
         
         // Если базовые данные есть, загружаем только данные для вкладки, если нужно
         switch tab {
@@ -2168,6 +2189,9 @@ class SummaryViewModel: ObservableObject {
     
     // Загрузка данных для вкладки "Общее"
     func loadGeneralData() async {
+        // Проверяем, не отменена ли задача
+        guard !Task.isCancelled else { return }
+        
         // Форматируем даты для API
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -2185,6 +2209,14 @@ class SummaryViewModel: ObservableObject {
             filteredFertilizingEvents = try await fertilizingTask
             filteredOverdueReports = try await overdueTask
         } catch {
+            // Игнорируем ошибку отмены - это нормальное поведение SwiftUI
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                return
+            }
+            // Проверяем, не отменена ли задача
+            if Task.isCancelled {
+                return
+            }
             print("❌ Ошибка загрузки данных для общей статистики: \(error)")
         }
     }
@@ -2196,6 +2228,9 @@ class SummaryViewModel: ObservableObject {
     
     // Загрузка данных для вкладки "По теплицам"
     private func loadGreenhousesData() async {
+        // Проверяем, не отменена ли задача
+        guard !Task.isCancelled else { return }
+        
         // Загружаем события и отчеты параллельно
         async let wateringTask = APIService.shared.getWateringEvents()
         async let fertilizingTask = APIService.shared.getFertilizingEvents()
@@ -2206,8 +2241,20 @@ class SummaryViewModel: ObservableObject {
             allFertilizingEvents = try await fertilizingTask
             allOverdueReports = try await overdueTask
         } catch {
+            // Игнорируем ошибку отмены - это нормальное поведение SwiftUI
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                return
+            }
+            // Проверяем, не отменена ли задача
+            if Task.isCancelled {
+                return
+            }
             print("❌ Ошибка загрузки данных по теплицам: \(error)")
+            return
         }
+        
+        // Проверяем отмену перед загрузкой растений
+        guard !Task.isCancelled else { return }
         
         // Загружаем растения только для тех теплиц, которые есть в событиях
         let greenhouseIdsInEvents = Set(
@@ -2219,6 +2266,9 @@ class SummaryViewModel: ObservableObject {
         await withTaskGroup(of: Void.self) { group in
             for greenhouseId in greenhouseIdsInEvents {
                 group.addTask {
+                    // Проверяем отмену перед каждой загрузкой
+                    guard !Task.isCancelled else { return }
+                    
                     do {
                         let instances = try await APIService.shared.getPlantInstances(greenhouseId: greenhouseId)
                         await MainActor.run {
@@ -2227,6 +2277,13 @@ class SummaryViewModel: ObservableObject {
                             }
                         }
                     } catch {
+                        // Игнорируем ошибку отмены
+                        if let urlError = error as? URLError, urlError.code == .cancelled {
+                            return
+                        }
+                        if Task.isCancelled {
+                            return
+                        }
                         print("❌ Ошибка загрузки растений для теплицы \(greenhouseId): \(error)")
                     }
                 }
@@ -2236,10 +2293,16 @@ class SummaryViewModel: ObservableObject {
     
     // Загрузка данных для вкладки "По рабочим"
     private func loadWorkersData() async {
+        // Проверяем, не отменена ли задача
+        guard !Task.isCancelled else { return }
+        
         // Загружаем события по каждому рабочему параллельно
         await withTaskGroup(of: Void.self) { group in
             for worker in allWorkers {
                 group.addTask {
+                    // Проверяем отмену перед каждой загрузкой
+                    guard !Task.isCancelled else { return }
+                    
                     do {
                         async let wateringTask = APIService.shared.getWateringEvents(userId: worker.id)
                         async let fertilizingTask = APIService.shared.getFertilizingEvents(userId: worker.id)
@@ -2252,11 +2315,21 @@ class SummaryViewModel: ObservableObject {
                             self.workerEvents[worker.id] = events
                         }
                     } catch {
+                        // Игнорируем ошибку отмены
+                        if let urlError = error as? URLError, urlError.code == .cancelled {
+                            return
+                        }
+                        if Task.isCancelled {
+                            return
+                        }
                         print("❌ Ошибка загрузки событий для рабочего \(worker.id): \(error)")
                     }
                 }
             }
         }
+        
+        // Проверяем отмену перед загрузкой растений
+        guard !Task.isCancelled else { return }
         
         // Загружаем растения только для тех теплиц, которые есть в событиях рабочих
         let greenhouseIdsInWorkerEvents = Set(
@@ -2272,6 +2345,9 @@ class SummaryViewModel: ObservableObject {
                 }
                 
                 group.addTask {
+                    // Проверяем отмену перед каждой загрузкой
+                    guard !Task.isCancelled else { return }
+                    
                     do {
                         let instances = try await APIService.shared.getPlantInstances(greenhouseId: greenhouseId)
                         await MainActor.run {
@@ -2280,6 +2356,13 @@ class SummaryViewModel: ObservableObject {
                             }
                         }
                     } catch {
+                        // Игнорируем ошибку отмены
+                        if let urlError = error as? URLError, urlError.code == .cancelled {
+                            return
+                        }
+                        if Task.isCancelled {
+                            return
+                        }
                         print("❌ Ошибка загрузки растений для теплицы \(greenhouseId): \(error)")
                     }
                 }

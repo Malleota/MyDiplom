@@ -132,3 +132,39 @@ struct PlantsViewSkeleton: View {
     }
 }
 
+// MARK: - Workers View Skeleton
+struct WorkersViewSkeleton: View {
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(0..<3) { _ in
+                    HStack(spacing: 12) {
+                        // Аватар пользователя
+                        SkeletonView(width: 50, height: 50, cornerRadius: 8)
+                        
+                        // Информация о пользователе
+                        VStack(alignment: .leading, spacing: 4) {
+                            // Имя и бейджи
+                            HStack(spacing: 8) {
+                                SkeletonView(width: 120, height: 18, cornerRadius: 4)
+                                SkeletonView(width: 50, height: 16, cornerRadius: 4)
+                            }
+                            
+                            // Email
+                            SkeletonView(width: 180, height: 14, cornerRadius: 4)
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(12)
+                    .cardBorder()
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 16)
+        }
+    }
+}
+
