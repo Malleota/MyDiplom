@@ -220,16 +220,13 @@ struct HomeView: View {
                         } else if viewModel.greenhousesRequiringAttention.count == 1 {
                             // Если одна теплица - показываем на всю ширину без скролла
                             ForEach(viewModel.greenhousesRequiringAttention, id: \.id) { greenhouse in
-                                FlatGreenhouseCardView(
+                                GreenhouseCardWrapper(
                                     greenhouse: greenhouse,
-                                    sensorData: viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: manager, sensorDataManager: sensorDataManager),
-                                    nextWatering: wateringDataManager.getNextWatering(greenhouseId: greenhouse.id),
-                                    nextFertilizing: fertilizingDataManager.getNextFertilizing(greenhouseId: greenhouse.id),
-                                    plantImageUrl: viewModel.getPlantImageUrl(
-                                        greenhouse: greenhouse,
-                                        nextWatering: wateringDataManager.getNextWatering(greenhouseId: greenhouse.id),
-                                        nextFertilizing: fertilizingDataManager.getNextFertilizing(greenhouseId: greenhouse.id)
-                                    )
+                                    viewModel: viewModel,
+                                    manager: manager,
+                                    sensorDataManager: sensorDataManager,
+                                    wateringDataManager: wateringDataManager,
+                                    fertilizingDataManager: fertilizingDataManager
                                 )
                             }
                             .padding(.horizontal)
@@ -238,16 +235,13 @@ struct HomeView: View {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 12) {
                                     ForEach(viewModel.greenhousesRequiringAttention, id: \.id) { greenhouse in
-                                        FlatGreenhouseCardView(
+                                        GreenhouseCardWrapper(
                                             greenhouse: greenhouse,
-                                            sensorData: viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: manager, sensorDataManager: sensorDataManager),
-                                            nextWatering: wateringDataManager.getNextWatering(greenhouseId: greenhouse.id),
-                                            nextFertilizing: fertilizingDataManager.getNextFertilizing(greenhouseId: greenhouse.id),
-                                            plantImageUrl: viewModel.getPlantImageUrl(
-                                                greenhouse: greenhouse,
-                                                nextWatering: wateringDataManager.getNextWatering(greenhouseId: greenhouse.id),
-                                                nextFertilizing: fertilizingDataManager.getNextFertilizing(greenhouseId: greenhouse.id)
-                                            )
+                                            viewModel: viewModel,
+                                            manager: manager,
+                                            sensorDataManager: sensorDataManager,
+                                            wateringDataManager: wateringDataManager,
+                                            fertilizingDataManager: fertilizingDataManager
                                         )
                                         .frame(width: 320)
                                     }
@@ -386,10 +380,12 @@ struct HomeView: View {
                     wateringDataManager: wateringDataManager,
                     fertilizingDataManager: fertilizingDataManager
                 )
-                // Загружаем отчет для рабочего
+                // Загружаем отчет для рабочего (параллельная загрузка теплиц и типов растений)
                 if let user = authManager.currentUser, user.role == "worker" {
-                    await loadGreenhouses()
-                    await loadPlantTypes()
+                    async let greenhousesTask = loadGreenhouses()
+                    async let plantTypesTask = loadPlantTypes()
+                    await greenhousesTask
+                    await plantTypesTask
                     await loadReports()
                 }
             }
@@ -400,10 +396,12 @@ struct HomeView: View {
                     wateringDataManager: wateringDataManager,
                     fertilizingDataManager: fertilizingDataManager
                 )
-                // Обновляем отчет для рабочего
+                // Обновляем отчет для рабочего (параллельная загрузка теплиц и типов растений)
                 if let user = authManager.currentUser, user.role == "worker" {
-                    await loadGreenhouses()
-                    await loadPlantTypes()
+                    async let greenhousesTask = loadGreenhouses()
+                    async let plantTypesTask = loadPlantTypes()
+                    await greenhousesTask
+                    await plantTypesTask
                     await loadReports()
                 }
             }
@@ -442,10 +440,7 @@ struct HomeView: View {
         guard let userId = authManager.currentUser?.id else { return }
         
         do {
-            let workerGreenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: userId)
-            await MainActor.run {
-                greenhouses = workerGreenhouses
-            }
+            greenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: userId)
         } catch {
             print("❌ HomeView.loadGreenhouses: Ошибка загрузки теплиц: \(error)")
         }
@@ -458,9 +453,7 @@ struct HomeView: View {
             for plantType in allPlantTypes {
                 typesDict[plantType.id] = plantType
             }
-            await MainActor.run {
-                plantTypes = typesDict
-            }
+            plantTypes = typesDict
         } catch {
             print("❌ HomeView.loadPlantTypes: Ошибка загрузки типов растений: \(error)")
         }
@@ -469,18 +462,18 @@ struct HomeView: View {
     private func loadReports() async {
         guard let userId = authManager.currentUser?.id else { return }
         
-        await MainActor.run {
-            isLoadingReports = true
-        }
+        isLoadingReports = true
+        defer { isLoadingReports = false }
         
         do {
-            let watering = try await APIService.shared.getWateringEvents(userId: userId)
-            let fertilizing = try await APIService.shared.getFertilizingEvents(userId: userId)
+            // Параллельная загрузка событий полива и удобрения
+            async let wateringTask = APIService.shared.getWateringEvents(userId: userId)
+            async let fertilizingTask = APIService.shared.getFertilizingEvents(userId: userId)
             
-            await MainActor.run {
-                wateringEvents = watering
-                fertilizingEvents = fertilizing
-            }
+            let (watering, fertilizing) = try await (wateringTask, fertilizingTask)
+            
+            wateringEvents = watering
+            fertilizingEvents = fertilizing
             
             // Собираем уникальные ID теплиц из всех событий
             var uniqueGreenhouseIds = Set<String>()
@@ -491,52 +484,67 @@ struct HomeView: View {
                 uniqueGreenhouseIds.insert(event.greenhouse_id)
             }
             
-            // Загружаем теплицы из событий (не только текущие привязанные)
-            var allGreenhousesFromEvents: [GreenhouseOut] = []
-            for greenhouseId in uniqueGreenhouseIds {
-                do {
-                    let greenhouse = try await APIService.shared.getGreenhouse(id: greenhouseId)
-                    allGreenhousesFromEvents.append(greenhouse)
-                } catch {
-                    // Если теплица недоступна (403), пропускаем её
-                    if let apiError = error as? APIError, !(apiError.detail.contains("доступа") || apiError.detail.contains("Access denied")) {
-                        print("❌ HomeView.loadReports: Ошибка загрузки теплицы \(greenhouseId): \(error)")
+            // Параллельная загрузка теплиц из событий
+            let allGreenhousesFromEvents = await withTaskGroup(of: GreenhouseOut?.self) { group in
+                var loadedGreenhouses: [GreenhouseOut] = []
+                
+                for greenhouseId in uniqueGreenhouseIds {
+                    group.addTask {
+                        do {
+                            return try await APIService.shared.getGreenhouse(id: greenhouseId)
+                        } catch {
+                            // Если теплица недоступна (403), пропускаем её
+                            if let apiError = error as? APIError, !(apiError.detail.contains("доступа") || apiError.detail.contains("Access denied")) {
+                                print("❌ HomeView.loadReports: Ошибка загрузки теплицы \(greenhouseId): \(error)")
+                            }
+                            return nil
+                        }
                     }
                 }
-            }
-            
-            await MainActor.run {
-                // Объединяем текущие теплицы с теплицами из событий
-                var allGreenhousesSet = Set(greenhouses.map { $0.id })
-                for gh in allGreenhousesFromEvents {
-                    if !allGreenhousesSet.contains(gh.id) {
-                        greenhouses.append(gh)
-                        allGreenhousesSet.insert(gh.id)
+                
+                for await greenhouse in group {
+                    if let greenhouse = greenhouse {
+                        loadedGreenhouses.append(greenhouse)
                     }
                 }
+                
+                return loadedGreenhouses
             }
             
-            // Загружаем растения из всех теплиц (и текущих, и из событий)
-            var allPlantInstances: [PlantInstanceOut] = []
-            let allGreenhousesToLoad = await MainActor.run { greenhouses }
-            for greenhouse in allGreenhousesToLoad {
-                do {
-                    let instances = try await APIService.shared.getPlantInstances(greenhouseId: greenhouse.id)
-                    allPlantInstances.append(contentsOf: instances)
-                } catch {
-                    print("❌ HomeView.loadReports: Ошибка загрузки растений для теплицы \(greenhouse.id): \(error)")
+            // Объединяем текущие теплицы с теплицами из событий
+            var allGreenhousesSet = Set(greenhouses.map { $0.id })
+            for gh in allGreenhousesFromEvents {
+                if !allGreenhousesSet.contains(gh.id) {
+                    greenhouses.append(gh)
+                    allGreenhousesSet.insert(gh.id)
                 }
             }
             
-            await MainActor.run {
-                plantInstances = allPlantInstances
-                isLoadingReports = false
+            // Параллельная загрузка растений из всех теплиц
+            let allPlantInstances = await withTaskGroup(of: [PlantInstanceOut].self) { group in
+                var allInstances: [PlantInstanceOut] = []
+                
+                for greenhouse in greenhouses {
+                    group.addTask {
+                        do {
+                            return try await APIService.shared.getPlantInstances(greenhouseId: greenhouse.id)
+                        } catch {
+                            print("❌ HomeView.loadReports: Ошибка загрузки растений для теплицы \(greenhouse.id): \(error)")
+                            return []
+                        }
+                    }
+                }
+                
+                for await instances in group {
+                    allInstances.append(contentsOf: instances)
+                }
+                
+                return allInstances
             }
+            
+            plantInstances = allPlantInstances
         } catch {
             print("❌ HomeView.loadReports: Ошибка загрузки отчетов: \(error)")
-            await MainActor.run {
-                isLoadingReports = false
-            }
         }
     }
 }
@@ -545,17 +553,30 @@ struct HomeView: View {
 @MainActor
 class HomeViewModel: ObservableObject {
     @Published var greenhousesRequiringAttention: [GreenhouseOut] = []
-    @Published var allGreenhouses: [GreenhouseOut] = []
+    @Published var allGreenhouses: [GreenhouseOut] = [] {
+        didSet {
+            // Обновляем кэш при изменении списка теплиц
+            _greenhousesWithSensors = nil
+        }
+    }
     @Published var isLoading = false
     
-    // Получаем теплицы с привязанными датчиками
+    // Кэшированный список теплиц с датчиками
+    private var _greenhousesWithSensors: [GreenhouseOut]?
+    
+    // Получаем теплицы с привязанными датчиками (с кэшированием)
     var greenhousesWithSensors: [GreenhouseOut] {
-        allGreenhouses.filter { greenhouse in
-            if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
-                return true
-            }
-            return false
+        if let cached = _greenhousesWithSensors {
+            return cached
         }
+        let filtered = allGreenhouses.filter { greenhouse in
+            guard let sensorId = greenhouse.sensor_id, !sensorId.isEmpty else {
+                return false
+            }
+            return true
+        }
+        _greenhousesWithSensors = filtered
+        return filtered
     }
     
     func loadData(
@@ -571,20 +592,28 @@ class HomeViewModel: ObservableObject {
             // Загружаем теплицы (API автоматически фильтрует: админ видит все, рабочий - только привязанные)
             allGreenhouses = try await APIService.shared.getGreenhouses()
             
-            // Загружаем данные о поливах и удобрениях для всех теплиц
-            for greenhouse in allGreenhouses {
-                await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
-                await fertilizingDataManager.loadNextFertilizingForGreenhouse(greenhouse)
-                
-                // Регистрируем теплицу для отслеживания данных датчика
-                if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
-                    sensorDataManager.registerGreenhouse(greenhouseId: greenhouse.id)
-                    await sensorDataManager.loadSensorDataForGreenhouse(greenhouse)
+            // Параллельная загрузка данных о поливах, удобрениях и датчиках для всех теплиц
+            await withTaskGroup(of: Void.self) { group in
+                for greenhouse in allGreenhouses {
+                    group.addTask {
+                        // Параллельная загрузка полива и удобрения для каждой теплицы
+                        async let wateringTask = wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
+                        async let fertilizingTask = fertilizingDataManager.loadNextFertilizingForGreenhouse(greenhouse)
+                        
+                        await wateringTask
+                        await fertilizingTask
+                        
+                        // Регистрируем теплицу для отслеживания данных датчика (на главном акторе)
+                        if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
+                            await MainActor.run {
+                                sensorDataManager.registerGreenhouse(greenhouseId: greenhouse.id)
+                            }
+                            // loadSensorDataForGreenhouse автоматически выполнится на главном акторе
+                            await sensorDataManager.loadSensorDataForGreenhouse(greenhouse)
+                        }
+                    }
                 }
             }
-            
-            // Небольшая задержка, чтобы данные успели сохраниться
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 секунды
             
             // Обновляем список требующих внимания
             await updateRequiringAttention(
@@ -600,24 +629,17 @@ class HomeViewModel: ObservableObject {
         wateringDataManager: WateringDataManager,
         fertilizingDataManager: FertilizingDataManager
     ) async {
-        var requiringAttention: [GreenhouseOut] = []
-        
-        for greenhouse in allGreenhouses {
+        // Используем compactMap для более эффективной фильтрации
+        greenhousesRequiringAttention = allGreenhouses.compactMap { greenhouse in
             let nextWatering = wateringDataManager.getNextWatering(greenhouseId: greenhouse.id)
             let nextFertilizing = fertilizingDataManager.getNextFertilizing(greenhouseId: greenhouse.id)
             
-            let needsAttention = requiresAttention(
+            return requiresAttention(
                 greenhouse: greenhouse,
                 nextWatering: nextWatering,
                 nextFertilizing: nextFertilizing
-            )
-            
-            if needsAttention {
-                requiringAttention.append(greenhouse)
-            }
+            ) ? greenhouse : nil
         }
-        
-        greenhousesRequiringAttention = requiringAttention
     }
     
     private func requiresAttention(
@@ -732,6 +754,47 @@ struct GreenhousesView: View {
             .environmentObject(sensorDataManager)
             .environmentObject(wateringDataManager)
             .environmentObject(fertilizingDataManager)
+    }
+}
+
+// MARK: - Greenhouse Card Wrapper (оптимизация вычислений)
+struct GreenhouseCardWrapper: View {
+    let greenhouse: GreenhouseOut
+    let viewModel: HomeViewModel
+    let manager: BLEManager
+    let sensorDataManager: SensorDataManager
+    let wateringDataManager: WateringDataManager
+    let fertilizingDataManager: FertilizingDataManager
+    
+    // Вычисляем значения один раз
+    private var nextWatering: NextWateringOut? {
+        wateringDataManager.getNextWatering(greenhouseId: greenhouse.id)
+    }
+    
+    private var nextFertilizing: NextWateringOut? {
+        fertilizingDataManager.getNextFertilizing(greenhouseId: greenhouse.id)
+    }
+    
+    private var sensorData: SensorReadingOut? {
+        viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: manager, sensorDataManager: sensorDataManager)
+    }
+    
+    private var plantImageUrl: String? {
+        viewModel.getPlantImageUrl(
+            greenhouse: greenhouse,
+            nextWatering: nextWatering,
+            nextFertilizing: nextFertilizing
+        )
+    }
+    
+    var body: some View {
+        FlatGreenhouseCardView(
+            greenhouse: greenhouse,
+            sensorData: sensorData,
+            nextWatering: nextWatering,
+            nextFertilizing: nextFertilizing,
+            plantImageUrl: plantImageUrl
+        )
     }
 }
 
