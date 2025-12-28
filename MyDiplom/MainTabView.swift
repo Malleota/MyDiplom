@@ -13,6 +13,274 @@ import Combine
 private let globalOperationLock = NSLock()
 private var activeOperations: Set<String> = [] // plantInstanceId -> активные операции
 
+// MARK: - Skeleton Components
+struct ShimmerEffect: ViewModifier {
+    @State private var phase: CGFloat = 0
+    
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                GeometryReader { geometry in
+                    LinearGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: Color.clear, location: 0.0),
+                            .init(color: Color.white.opacity(0.4), location: 0.5),
+                            .init(color: Color.clear, location: 1.0)
+                        ]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: geometry.size.width * 1.5)
+                    .offset(x: -geometry.size.width * 0.75 + phase * geometry.size.width * 1.5)
+                    .blur(radius: 8)
+                }
+                .clipped()
+            )
+            .onAppear {
+                phase = 0
+                withAnimation(
+                    Animation.linear(duration: 1.2)
+                        .repeatForever(autoreverses: false)
+                ) {
+                    phase = 1
+                }
+            }
+    }
+}
+
+struct SkeletonView: View {
+    let width: CGFloat?
+    let height: CGFloat
+    let cornerRadius: CGFloat
+    
+    init(width: CGFloat? = nil, height: CGFloat, cornerRadius: CGFloat = 8) {
+        self.width = width
+        self.height = height
+        self.cornerRadius = cornerRadius
+    }
+    
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(Color(.systemGray5))
+            .frame(width: width, height: height)
+            .modifier(ShimmerEffect())
+            .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Skeleton Components for Blocks
+struct GreenhouseCardSkeleton: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            // Верхняя часть: иконка, название
+            HStack(spacing: 12) {
+                SkeletonView(width: 60, height: 60, cornerRadius: 12)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    SkeletonView(width: 150, height: 18, cornerRadius: 4)
+                    SkeletonView(width: 100, height: 14, cornerRadius: 4)
+                }
+                
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+            
+            // Разделитель
+            Divider()
+                .background(Color.gray.opacity(0.2))
+                .padding(.horizontal, 16)
+            
+            // Информация о поливе и удобрении
+            VStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    SkeletonView(width: 14, height: 14, cornerRadius: 7)
+                    SkeletonView(width: 120, height: 16, cornerRadius: 4)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                
+                HStack(spacing: 8) {
+                    SkeletonView(width: 14, height: 14, cornerRadius: 7)
+                    SkeletonView(width: 140, height: 16, cornerRadius: 4)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(.bottom, 12)
+        }
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(16)
+        .accessibilityHidden(true)
+    }
+}
+
+struct SensorCardSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                SkeletonView(width: 150, height: 20, cornerRadius: 4)
+                Spacer()
+            }
+            
+            VStack(spacing: 8) {
+                HStack {
+                    SkeletonView(width: 100, height: 16, cornerRadius: 4)
+                    Spacer()
+                    SkeletonView(width: 60, height: 16, cornerRadius: 4)
+                }
+                HStack {
+                    SkeletonView(width: 100, height: 16, cornerRadius: 4)
+                    Spacer()
+                    SkeletonView(width: 60, height: 16, cornerRadius: 4)
+                }
+                HStack {
+                    SkeletonView(width: 100, height: 16, cornerRadius: 4)
+                    Spacer()
+                    SkeletonView(width: 60, height: 16, cornerRadius: 4)
+                }
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(16)
+        .accessibilityHidden(true)
+    }
+}
+
+struct SummaryStatisticsSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Заголовок
+            HStack {
+                SkeletonView(width: 80, height: 20, cornerRadius: 4)
+                Spacer()
+                SkeletonView(width: 100, height: 32, cornerRadius: 8)
+            }
+            .padding(.horizontal)
+            
+            // Карточки статистики
+            ScrollView {
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        StatisticCardSkeleton()
+                        StatisticCardSkeleton()
+                    }
+                    HStack(spacing: 12) {
+                        StatisticCardSkeleton()
+                        StatisticCardSkeleton()
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct StatisticCardSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SkeletonView(width: 100, height: 14, cornerRadius: 4)
+            SkeletonView(width: 60, height: 24, cornerRadius: 4)
+            Spacer()
+            HStack {
+                Spacer()
+                SkeletonView(width: 24, height: 24, cornerRadius: 12)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity)
+        .frame(height: 100)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+        .accessibilityHidden(true)
+    }
+}
+
+struct ReportsBlockSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Заголовок
+            HStack {
+                SkeletonView(width: 80, height: 20, cornerRadius: 4)
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            // Переключатель вкладок
+            SkeletonView(width: nil, height: 40, cornerRadius: 8)
+                .padding(.horizontal)
+            
+            // Контент
+            VStack(spacing: 12) {
+                ForEach(0..<3) { _ in
+                    ReportRowSkeleton()
+                }
+            }
+            .padding(.horizontal)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct ReportRowSkeleton: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            SkeletonView(width: 60, height: 60, cornerRadius: 8)
+            VStack(alignment: .leading, spacing: 4) {
+                SkeletonView(width: 150, height: 16, cornerRadius: 4)
+                SkeletonView(width: 100, height: 14, cornerRadius: 4)
+            }
+            Spacer()
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+        .accessibilityHidden(true)
+    }
+}
+
+struct WorkerReportSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Заголовок
+            HStack {
+                SkeletonView(width: 100, height: 20, cornerRadius: 4)
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            // Таблица
+            VStack(spacing: 0) {
+                // Заголовок таблицы
+                HStack(spacing: 0) {
+                    ForEach(0..<4) { _ in
+                        SkeletonView(width: nil, height: 16, cornerRadius: 4)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 12)
+                .background(Color(.secondarySystemBackground))
+                
+                // Строки
+                ForEach(0..<3) { _ in
+                    HStack(spacing: 0) {
+                        ForEach(0..<4) { _ in
+                            SkeletonView(width: nil, height: 14, cornerRadius: 4)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 12)
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 struct MainTabView: View {
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var bleManager = BLEManager()
@@ -108,6 +376,7 @@ struct HomeView: View {
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var viewModel = HomeViewModel()
     @State private var showProfile = false
+    @State private var hasInitialLoadStarted = false
     
     // Состояния для отчета рабочего
     @State private var wateringEvents: [WaterEventOut] = []
@@ -123,31 +392,40 @@ struct HomeView: View {
                 VStack(spacing: 32) {
                     // Шапка с аватаром и приветствием
                     HStack(spacing: 12) {
-                        Button(action: {
-                            showProfile = true
-                        }) {
-                            if let avatarUrl = authManager.currentUser?.avatar_url,
-                               let url = URL(string: avatarUrl) {
-                                AsyncImage(url: url) { image in
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                } placeholder: {
-                                    ProgressView()
-                                }
-                                .frame(width: 56, height: 56)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                            } else {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.gray.opacity(0.3))
-                                    .frame(width: 56, height: 56)
+                        if authManager.currentUser == nil {
+                            // Skeleton для шапки
+                            HStack(spacing: 12) {
+                                SkeletonView(width: 56, height: 56, cornerRadius: 8)
+                                SkeletonView(width: 200, height: 28, cornerRadius: 6)
+                                Spacer()
                             }
+                        } else {
+                            Button(action: {
+                                showProfile = true
+                            }) {
+                                if let avatarUrl = authManager.currentUser?.avatar_url,
+                                   let url = URL(string: avatarUrl) {
+                                    AsyncImage(url: url) { image in
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    } placeholder: {
+                                        SkeletonView(width: 56, height: 56, cornerRadius: 8)
+                                    }
+                                    .frame(width: 56, height: 56)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                } else {
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color.gray.opacity(0.3))
+                                        .frame(width: 56, height: 56)
+                                }
+                            }
+                            
+                            Text("Привет, \(authManager.currentUser?.name ?? "")!")
+                                .font(.title2.bold())
+                            
+                            Spacer()
                         }
-                        
-                        Text("Привет, \(authManager.currentUser?.name ?? "")!")
-                            .font(.title2.bold())
-                        
-                        Spacer()
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
@@ -181,13 +459,16 @@ struct HomeView: View {
                         .padding(.horizontal)
                         
                         // Контент блока
-                        if viewModel.isLoading {
-                            // Состояние загрузки
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                    .padding(.vertical, 32)
-                                Spacer()
+                        if viewModel.isLoading || (!hasInitialLoadStarted && viewModel.greenhousesRequiringAttention.isEmpty) {
+                            // Skeleton для блока "Требуют внимания"
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(0..<2) { _ in
+                                        GreenhouseCardSkeleton()
+                                            .frame(width: 320)
+                                    }
+                                }
+                                .padding(.horizontal)
                             }
                         } else if viewModel.greenhousesRequiringAttention.isEmpty {
                             // Пустое состояние - все теплицы в порядке
@@ -266,13 +547,16 @@ struct HomeView: View {
                         .padding(.horizontal)
                         
                         // Контент блока
-                        if viewModel.isLoading {
-                            // Состояние загрузки
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                    .padding(.vertical, 32)
-                                Spacer()
+                        if viewModel.isLoading || (!hasInitialLoadStarted && viewModel.greenhousesWithSensors.isEmpty) {
+                            // Skeleton для блока "Подключенные датчики"
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(0..<2) { _ in
+                                        SensorCardSkeleton()
+                                            .frame(width: 320)
+                                    }
+                                }
+                                .padding(.horizontal)
                             }
                         } else if viewModel.greenhousesWithSensors.isEmpty {
                             // Пустое состояние
@@ -374,6 +658,7 @@ struct HomeView: View {
                 if authManager.currentUser == nil {
                     await authManager.loadUserData()
                 }
+                hasInitialLoadStarted = true
                 await viewModel.loadData(
                     bleManager: manager,
                     sensorDataManager: sensorDataManager,
@@ -1514,13 +1799,8 @@ struct WorkerReportBlockView: View {
             
             // Контент блока
             if isLoadingReports {
-                // Состояние загрузки
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .padding(.vertical, 32)
-                    Spacer()
-                }
+                // Skeleton для блока "Мой отчет"
+                WorkerReportSkeleton()
             } else {
                 let allEvents = (wateringEvents + fertilizingEvents).sorted { event1, event2 in
                     return event1.created_at > event2.created_at
@@ -1681,12 +1961,7 @@ struct SummaryStatisticsBlockView: View {
             
             // Контент (данные из SummaryGeneralView без фильтра)
             if viewModel.isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView("Загрузка данных...")
-                        .padding(.vertical, 32)
-                    Spacer()
-                }
+                SummaryStatisticsSkeleton()
             } else {
                 SummaryGeneralView(viewModel: viewModel)
             }
@@ -1776,12 +2051,7 @@ struct ReportsBlockView: View {
             
             // Контент вкладок
             if viewModel.isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView("Загрузка данных...")
-                        .padding(.vertical, 32)
-                    Spacer()
-                }
+                ReportsBlockSkeleton()
             } else {
                 switch selectedTab {
                 case .byGreenhouses:
