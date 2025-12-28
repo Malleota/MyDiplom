@@ -30,7 +30,7 @@ struct ProfileView: View {
                                     .resizable()
                                     .aspectRatio(contentMode: .fill)
                             } placeholder: {
-                                ProgressView()
+                                SkeletonView(width: 176, height: 176, cornerRadius: 20)
                             }
                             .frame(width: 176, height: 176)
                             .clipShape(RoundedRectangle(cornerRadius: 20))
@@ -41,7 +41,7 @@ struct ProfileView: View {
                                     .resizable()
                                     .aspectRatio(contentMode: .fill)
                             } placeholder: {
-                                ProgressView()
+                                SkeletonView(width: 176, height: 176, cornerRadius: 20)
                             }
                             .frame(width: 176, height: 176)
                             .clipShape(RoundedRectangle(cornerRadius: 20))
@@ -262,10 +262,10 @@ struct AvatarThumbnailView: View {
                             .aspectRatio(contentMode: .fill)
                             .background(Color(UIColor.quaternarySystemFill))
                     } placeholder: {
-                        Color.gray.opacity(0.3)
+                        SkeletonView(width: 64, height: 64, cornerRadius: 32)
                     }
                 } else {
-                    Color.gray.opacity(0.3)
+                    SkeletonView(width: 64, height: 64, cornerRadius: 32)
                 }
             }
             .frame(width: 64, height: 64)

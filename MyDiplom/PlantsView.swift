@@ -242,14 +242,13 @@ struct PlantRow: View {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
-                        ProgressView()
-                            .frame(width: 50, height: 50)
+                        SkeletonView(width: 50, height: 50, cornerRadius: 8)
                     case .success(let image):
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     case .failure:
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 50, height: 50)
                             .overlay(
@@ -258,13 +257,13 @@ struct PlantRow: View {
                                     .font(.system(size: 20))
                             )
                     @unknown default:
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 50, height: 50)
                     }
                 }
                 .frame(width: 50, height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(Color.gray.opacity(0.3))
@@ -344,8 +343,7 @@ struct PlantDetailView: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         } placeholder: {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(.secondarySystemBackground))
+                            SkeletonView(width: 80, height: 80, cornerRadius: 8)
                         }
                         .frame(width: 80, height: 80)
                         .background(Color(.secondarySystemBackground))
@@ -787,8 +785,7 @@ struct CreatePlantView: View {
                                                         AsyncImage(url: imageUrl) { phase in
                                                             switch phase {
                                                             case .empty:
-                                                                ProgressView()
-                                                                    .frame(width: 100, height: 100)
+                                                                SkeletonView(width: 100, height: 100, cornerRadius: 12)
                                                             case .success(let img):
                                                                 img
                                                                     .resizable()
@@ -1288,8 +1285,7 @@ struct EditPlantTypeView: View {
                                                 AsyncImage(url: fullImageUrl) { phase in
                                                     switch phase {
                                                     case .empty:
-                                                        ProgressView()
-                                                            .frame(width: 100, height: 100)
+                                                        SkeletonView(width: 100, height: 100, cornerRadius: 12)
                                                     case .success(let img):
                                                         img
                                                             .resizable()
@@ -1336,8 +1332,7 @@ struct EditPlantTypeView: View {
                                                         AsyncImage(url: imageUrl) { phase in
                                                             switch phase {
                                                             case .empty:
-                                                                ProgressView()
-                                                                    .frame(width: 100, height: 100)
+                                                                SkeletonView(width: 100, height: 100, cornerRadius: 12)
                                                             case .success(let img):
                                                                 img
                                                                     .resizable()

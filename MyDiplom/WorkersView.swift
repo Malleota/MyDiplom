@@ -145,14 +145,13 @@ struct UserRow: View {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
-                        ProgressView()
-                            .frame(width: 50, height: 50)
+                        SkeletonView(width: 50, height: 50, cornerRadius: 8)
                     case .success(let image):
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     case .failure:
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 50, height: 50)
                             .overlay(
@@ -161,13 +160,13 @@ struct UserRow: View {
                                     .font(.system(size: 20))
                             )
                     @unknown default:
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 50, height: 50)
                     }
                 }
                 .frame(width: 50, height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(Color.gray.opacity(0.3))

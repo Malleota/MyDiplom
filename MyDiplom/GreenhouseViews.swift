@@ -303,8 +303,7 @@ struct GreenhouseImageView: View {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .empty:
-                    ProgressView()
-                        .frame(width: size, height: size)
+                    SkeletonView(width: size, height: size, cornerRadius: cornerRadius)
                 case .success(let image):
                     image
                         .resizable()
@@ -802,8 +801,7 @@ struct CreateGreenhouseView: View {
                                                     AsyncImage(url: imageUrl) { phase in
                                                         switch phase {
                                                         case .empty:
-                                                            ProgressView()
-                                                                .frame(width: 100, height: 100)
+                                                            SkeletonView(width: 100, height: 100, cornerRadius: 12)
                                                         case .success(let img):
                                                             img
                                                                 .resizable()
@@ -1213,8 +1211,7 @@ struct EditGreenhouseView: View {
                                                     AsyncImage(url: imageUrl) { phase in
                                                         switch phase {
                                                         case .empty:
-                                                            ProgressView()
-                                                                .frame(width: 100, height: 100)
+                                                            SkeletonView(width: 100, height: 100, cornerRadius: 12)
                                                         case .success(let img):
                                                             img
                                                                 .resizable()
@@ -2085,8 +2082,7 @@ struct ExistingPlantRow: View {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
-                        ProgressView()
-                            .frame(width: 60, height: 60)
+                        SkeletonView(width: 60, height: 60, cornerRadius: 10)
                     case .success(let image):
                         image
                             .resizable()
@@ -2211,8 +2207,7 @@ struct PlantPickerView: View {
                                     AsyncImage(url: url) { phase in
                                         switch phase {
                                         case .empty:
-                                            ProgressView()
-                                                .frame(width: 60, height: 60)
+                                            SkeletonView(width: 60, height: 60, cornerRadius: 10)
                                         case .success(let image):
                                             image
                                                 .resizable()
@@ -2334,8 +2329,7 @@ struct WorkerSelectionRow: View {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .empty:
-                            ProgressView()
-                                .frame(width: 50, height: 50)
+                            SkeletonView(width: 50, height: 50, cornerRadius: 10)
                         case .success(let image):
                             image
                                 .resizable()
@@ -2411,8 +2405,7 @@ struct WorkerRow: View {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
-                        ProgressView()
-                            .frame(width: 50, height: 50)
+                        SkeletonView(width: 50, height: 50, cornerRadius: 25)
                     case .success(let image):
                         image
                             .resizable()

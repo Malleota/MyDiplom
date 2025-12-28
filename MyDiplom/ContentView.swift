@@ -42,7 +42,7 @@ struct ContentView: View {
                                         .resizable()
                                         .aspectRatio(contentMode: .fill)
                                 } placeholder: {
-                                    ProgressView()
+                                    SkeletonView(width: 56, height: 56, cornerRadius: 8)
                                 }
                                 .frame(width: 56, height: 56)
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -214,7 +214,7 @@ struct ContentView: View {
                                     .resizable()
                                     .aspectRatio(contentMode: .fill)
                             } placeholder: {
-                                ProgressView()
+                                SkeletonView(width: 32, height: 32, cornerRadius: 16)
                             }
                             .frame(width: 32, height: 32)
                             .clipShape(Circle())

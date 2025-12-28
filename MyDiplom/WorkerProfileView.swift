@@ -94,8 +94,7 @@ struct WorkerProfileView: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         } placeholder: {
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color(.secondarySystemBackground))
+                            SkeletonView(width: 80, height: 80, cornerRadius: 10)
                         }
                         .frame(width: 80, height: 80)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
