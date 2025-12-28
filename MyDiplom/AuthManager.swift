@@ -63,8 +63,20 @@ class AuthManager: ObservableObject {
                 // SensorDataManager переподключится автоматически
                 SensorDataManager.shared.connectWebSocket()
             }
+        } catch let error as APIError {
+            // Если пользователь не авторизован, разлогиниваем его
+            if error.detail.contains("Не авторизован") || error.detail.contains("не авторизован") {
+                print("❌ AuthManager: Пользователь не авторизован, выполняем logout")
+                logout()
+            } else {
+                print("Failed to load user data: \(error.detail)")
+            }
+        } catch let urlError as URLError {
+            // Сетевые ошибки не должны разлогинивать пользователя
+            print("⚠️ AuthManager: Сетевая ошибка при загрузке данных пользователя: \(urlError.localizedDescription)")
         } catch {
             print("Failed to load user data: \(error)")
+            // Для других ошибок не разлогиниваем, так как это может быть временная проблема
         }
     }
     

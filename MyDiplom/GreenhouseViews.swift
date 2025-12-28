@@ -3169,7 +3169,7 @@ struct GreenhouseDetailView: View {
     var body: some View {
         Group {
             if isLoading {
-                ProgressView("Загрузка...")
+                GreenhouseDetailSkeleton()
             } else if let greenhouse = greenhouse {
                 VStack(spacing: 0) {
                     // Заголовок и данные датчика (всегда видимы)

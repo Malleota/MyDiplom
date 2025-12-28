@@ -62,3 +62,39 @@ struct SkeletonView: View {
     }
 }
 
+// MARK: - Greenhouse Detail Skeleton
+struct GreenhouseDetailSkeleton: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                // Заголовок
+                HStack(spacing: 12) {
+                    SkeletonView(width: nil, height: 28, cornerRadius: 6)
+                    SkeletonView(width: 80, height: 80, cornerRadius: 8)
+                }
+                .padding(.horizontal)
+                
+                // Блок данных датчика
+                HStack(spacing: 12) {
+                    SkeletonView(width: nil, height: 100, cornerRadius: 12)
+                    SkeletonView(width: nil, height: 100, cornerRadius: 12)
+                }
+                .padding(.horizontal)
+                
+                // Сегментированный контрол
+                SkeletonView(width: nil, height: 40, cornerRadius: 20)
+                    .padding(.horizontal)
+                
+                // Элементы списка
+                VStack(spacing: 12) {
+                    ForEach(0..<3) { _ in
+                        SkeletonView(width: nil, height: 80, cornerRadius: 12)
+                    }
+                }
+                .padding(.horizontal)
+            }
+            .padding(.top, 8)
+        }
+    }
+}
+
