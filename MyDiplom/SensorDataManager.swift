@@ -170,9 +170,23 @@ class SensorDataManager: ObservableObject {
                     )
                 } else {
                     print("⚠️ SensorDataManager: Нет данных датчика на сервере для теплицы \(greenhouse.name)")
+                    print("💡 Это нормально, если датчик еще не отправлял данные или данные устарели (>2 минут)")
                 }
             } catch {
-                print("❌ SensorDataManager: Ошибка загрузки начальных данных с сервера для теплицы \(greenhouse.name): \(error)")
+                // Игнорируем ошибки отмены (когда view исчезает)
+                if let urlError = error as? URLError, urlError.code == .cancelled {
+                    return
+                }
+                if Task.isCancelled {
+                    return
+                }
+                // Для ошибок 500 не показываем как критическую ошибку
+                if let apiError = error as? APIError, apiError.detail.contains("500") {
+                    print("⚠️ SensorDataManager: Ошибка 500 при загрузке данных для теплицы \(greenhouse.name)")
+                    print("💡 Это может означать, что на сервере нет актуальных данных датчика или произошла временная ошибка")
+                } else {
+                    print("❌ SensorDataManager: Ошибка загрузки начальных данных с сервера для теплицы \(greenhouse.name): \(error)")
+                }
             }
         } else {
             print("📡 SensorDataManager: Данные датчика для теплицы \(greenhouse.name) уже загружены")

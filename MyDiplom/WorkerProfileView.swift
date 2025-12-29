@@ -399,14 +399,29 @@ struct WorkerProfileView: View {
         errorMessage = nil
         
         do {
-            let workerGreenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: currentUser.id)
+            let loadedGreenhouses: [GreenhouseOut]
+            
+            // Если текущий авторизованный пользователь - админ и смотрит профиль другого пользователя,
+            // используем getWorkerGreenhouses для получения теплиц этого воркера
+            let isViewingOtherUser = AuthManager.shared.currentUser?.id != currentUser.id
+            let isCurrentUserAdmin = AuthManager.shared.currentUser?.role == "admin"
+            
+            if isCurrentUserAdmin && isViewingOtherUser {
+                // Админ смотрит профиль воркера - используем специальный метод
+                loadedGreenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: currentUser.id)
+            } else {
+                // Воркер смотрит свой профиль или админ смотрит свой профиль
+                // getGreenhouses() автоматически вернет правильные теплицы
+                loadedGreenhouses = try await APIService.shared.getGreenhouses()
+            }
+            
             await MainActor.run {
-                greenhouses = workerGreenhouses
+                greenhouses = loadedGreenhouses
                 isLoading = false
             }
             
             // Загружаем данные о поливах и удобрениях для всех теплиц
-            for greenhouse in workerGreenhouses {
+            for greenhouse in loadedGreenhouses {
                 await wateringDataManager.loadNextWateringForGreenhouse(greenhouse)
                 await fertilizingDataManager.loadNextFertilizingForGreenhouse(greenhouse)
                 
@@ -679,7 +694,18 @@ struct WorkerProfileView: View {
             // Если меняем роль на админа, сначала отвязываем все теплицы
             if newRole == "admin" {
                 // Загружаем текущие привязанные теплицы
-                let currentGreenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: currentUser.id)
+                // Если текущий пользователь - админ и смотрит профиль другого пользователя,
+                // используем getWorkerGreenhouses, иначе getGreenhouses
+                let currentGreenhouses: [GreenhouseOut]
+                let isViewingOtherUser = AuthManager.shared.currentUser?.id != currentUser.id
+                let isCurrentUserAdmin = AuthManager.shared.currentUser?.role == "admin"
+                
+                if isCurrentUserAdmin && isViewingOtherUser {
+                    currentGreenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: currentUser.id)
+                } else {
+                    // Воркер меняет свою роль или админ меняет свою роль
+                    currentGreenhouses = try await APIService.shared.getGreenhouses()
+                }
                 
                 // Отвязываем все теплицы
                 for greenhouse in currentGreenhouses {

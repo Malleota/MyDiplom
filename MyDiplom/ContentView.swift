@@ -297,12 +297,12 @@ struct ContentView: View {
     // MARK: - Helper Methods
     
     private func loadGreenhouses() async {
-        guard let userId = authManager.currentUser?.id else { return }
-        
+        // Для воркеров getGreenhouses() автоматически возвращает только их теплицы
+        // Для админов getGreenhouses() возвращает все теплицы
         do {
-            let workerGreenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: userId)
+            let loadedGreenhouses = try await APIService.shared.getGreenhouses()
             await MainActor.run {
-                greenhouses = workerGreenhouses
+                greenhouses = loadedGreenhouses
             }
         } catch {
             print("❌ Ошибка загрузки теплиц: \(error)")

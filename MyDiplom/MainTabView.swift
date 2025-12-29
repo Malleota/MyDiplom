@@ -726,10 +726,10 @@ struct HomeView: View {
     // MARK: - Helper Methods for Worker Reports
     
     private func loadGreenhouses() async {
-        guard let userId = authManager.currentUser?.id else { return }
-        
+        // Для воркеров getGreenhouses() автоматически возвращает только их теплицы
+        // Для админов getGreenhouses() возвращает все теплицы
         do {
-            greenhouses = try await APIService.shared.getWorkerGreenhouses(workerId: userId)
+            greenhouses = try await APIService.shared.getGreenhouses()
         } catch {
             print("❌ HomeView.loadGreenhouses: Ошибка загрузки теплиц: \(error)")
         }

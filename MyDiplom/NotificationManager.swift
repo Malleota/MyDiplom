@@ -51,7 +51,7 @@ class NotificationManager {
                 type: "sensor_alert",
                 greenhouseId: greenhouseId,
                 greenhouseName: greenhouseName,
-                title: "⚠️ Предупреждение: \(greenhouseName)",
+                title: "Предупреждение: \(greenhouseName)",
                 message: message,
                 severity: severity
             )

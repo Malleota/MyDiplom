@@ -473,6 +473,17 @@ class APIService {
                     print("⚠️ getCurrentSensorData: Данные не найдены (404), ответ: \(responseString)")
                 }
                 return nil
+            } else if httpResponse.statusCode == 500 {
+                // Ошибка 500 - проблема на сервере, но не критично для клиента
+                // Возможные причины: проблема с БД, обработкой даты, или временная недоступность данных
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("⚠️ getCurrentSensorData: Ошибка 500 (Internal Server Error), ответ: \(responseString)")
+                    print("💡 Это может означать, что на сервере нет актуальных данных датчика или произошла временная ошибка")
+                } else {
+                    print("⚠️ getCurrentSensorData: Ошибка 500 (Internal Server Error), не удалось декодировать ответ")
+                }
+                // Возвращаем nil вместо выброса ошибки, чтобы приложение продолжало работать
+                return nil
             } else {
                 if let responseString = String(data: data, encoding: .utf8) {
                     print("⚠️ getCurrentSensorData: Ошибка \(httpResponse.statusCode), ответ: \(responseString)")

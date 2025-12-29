@@ -1097,6 +1097,14 @@ class CreateGreenhouseViewModel: ObservableObject {
         do {
             availableWorkers = try await APIService.shared.getWorkers()
         } catch {
+            // Игнорируем ошибку отмены - это нормальное поведение SwiftUI при исчезновении view
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                return
+            }
+            // Проверяем, не отменена ли задача
+            if Task.isCancelled {
+                return
+            }
             print("❌ Ошибка загрузки рабочих: \(error)")
             // Не показываем ошибку как критическую, просто логируем
         }
@@ -1673,6 +1681,14 @@ class EditGreenhouseViewModel: ObservableObject {
             workers = try await APIService.shared.getGreenhouseWorkers(greenhouseId: greenhouse.id)
             originalWorkerIds = Set(workers.map { $0.id })
         } catch {
+            // Игнорируем ошибку отмены - это нормальное поведение SwiftUI при исчезновении view
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                return
+            }
+            // Проверяем, не отменена ли задача
+            if Task.isCancelled {
+                return
+            }
             print("❌ Ошибка загрузки работников: \(error)")
             // Не критично, просто логируем
         }
@@ -3287,38 +3303,40 @@ struct GreenhouseDetailView: View {
 
                                             Spacer()
                                             
-                                            // Батарея из BLE данных, если доступна
-                                            if let connectedDevice = bleManager.lastConnectedDevice,
-                                               let bleSensorData = bleManager.sensors[connectedDevice.id] {
-                                                HStack(spacing: 4) {
-                                                    Image(systemName: "battery.100")
-                                                        .foregroundColor(batteryColor(bleSensorData.batteryPercent))
-                                                    Text("\(bleSensorData.batteryPercent)%")
-                                                        .font(.caption)
-                                                        .foregroundColor(.secondary)
+                                            // Батарея из BLE данных, если доступна (только для не-рабочих)
+                                            if !isWorker {
+                                                if let connectedDevice = bleManager.lastConnectedDevice,
+                                                   let bleSensorData = bleManager.sensors[connectedDevice.id] {
+                                                    HStack(spacing: 4) {
+                                                        Image(systemName: "battery.100")
+                                                            .foregroundColor(batteryColor(bleSensorData.batteryPercent))
+                                                        Text("\(bleSensorData.batteryPercent)%")
+                                                            .font(.caption)
+                                                            .foregroundColor(.secondary)
+                                                    }
                                                 }
+                                                
+                                                // Кнопка отвязать (только для не-рабочих)
+                                                Button(action: {
+                                                    Task {
+                                                        await unbindSensor()
+                                                    }
+                                                }) {
+                                                    if isUnbinding {
+                                                        ProgressView()
+                                                            .scaleEffect(0.8)
+                                                    } else {
+                                                        Text("Отключить")
+                                                            .font(.caption)
+                                                            .foregroundColor(DesignColor.mainRed.opacity(0.8))
+                                                    }
+                                                }
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 8)
+                                                .background(DesignColor.mainRed.opacity(0.1))
+                                                .cornerRadius(40)
+                                                .disabled(isUnbinding)
                                             }
-                                            
-                                            // Кнопка отвязать
-                                            Button(action: {
-                                                Task {
-                                                    await unbindSensor()
-                                                }
-                                            }) {
-                                                if isUnbinding {
-                                                    ProgressView()
-                                                        .scaleEffect(0.8)
-                                                } else {
-                                                    Text("Отключить")
-                                                        .font(.caption)
-                                                        .foregroundColor(DesignColor.mainRed.opacity(0.8))
-                                                }
-                                            }
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
-                                            .background(DesignColor.mainRed.opacity(0.1))
-                                            .cornerRadius(40)
-                                            .disabled(isUnbinding)
                                         }
                                         .padding(.horizontal)
                                         
@@ -3343,65 +3361,67 @@ struct GreenhouseDetailView: View {
                                         .padding(.horizontal)
                                     }
                                 } else {
-                                    // Датчик не подключен
-                                    VStack(spacing: 16) {
-                                        // Карточка подключения датчика
-                                        HStack(alignment: .center) {
-                                            HStack(alignment: .center, spacing: 8) {
-                                                Image(systemName: "sensor.tag.radiowaves.forward.fill")
-                                                    .font(.subheadline)
-                                                Text("Подключить датчик")
-                                                    .font(.subheadline)
-                                                    .fontWeight(.medium)
-                                                    .tracking(-0.5)
-                                                    .lineSpacing(15)
-                                            }
-                                            
-                                            Spacer()
-
-                                            Button(action: {
-                                                bleManager.startScan(disableAutoConnect: true)
-                                                showDeviceList = true
-                                            }) {
-                                                if isBinding {
-                                                    ProgressView()
-                                                        .scaleEffect(0.8)
-                                                } else {
-                                                    Text("Подключить")
-                                                        .font(.caption)
+                                    // Датчик не подключен (показываем только для не-рабочих)
+                                    if !isWorker {
+                                        VStack(spacing: 16) {
+                                            // Карточка подключения датчика
+                                            HStack(alignment: .center) {
+                                                HStack(alignment: .center, spacing: 8) {
+                                                    Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                                                        .font(.subheadline)
+                                                    Text("Подключить датчик")
+                                                        .font(.subheadline)
                                                         .fontWeight(.medium)
                                                         .tracking(-0.5)
                                                         .lineSpacing(15)
-                                                        .foregroundColor(DesignColor.mainAccent)
                                                 }
+                                                
+                                                Spacer()
+
+                                                Button(action: {
+                                                    bleManager.startScan(disableAutoConnect: true)
+                                                    showDeviceList = true
+                                                }) {
+                                                    if isBinding {
+                                                        ProgressView()
+                                                            .scaleEffect(0.8)
+                                                    } else {
+                                                        Text("Подключить")
+                                                            .font(.caption)
+                                                            .fontWeight(.medium)
+                                                            .tracking(-0.5)
+                                                            .lineSpacing(15)
+                                                            .foregroundColor(DesignColor.mainAccent)
+                                                    }
+                                                }
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 8)
+                                                .background(DesignColor.mainAccent.opacity(0.1))
+                                                .cornerRadius(40)
+                                                .disabled(isUnbinding)
                                             }
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
-                                            .background(DesignColor.mainAccent.opacity(0.1))
-                                            .cornerRadius(40)
-                                            .disabled(isUnbinding)
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding()
-                                        .background(Color(.systemBackground))
-                                        .cornerRadius(12)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 12)
-                                                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
-                                        )
-                                        .padding(.horizontal)
-                                        
-                                        if let error = errorMessage {
-                                            Text(error)
-                                                .font(.footnote)
-                                                .foregroundColor(DesignColor.mainRed)
-                                                .multilineTextAlignment(.center)
-                                                .padding(.horizontal)
-                                        }
-                                        
-                                        if isBinding {
-                                            ProgressView("Привязка датчика...")
-                                                .padding(.horizontal)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding()
+                                            .background(Color(.systemBackground))
+                                            .cornerRadius(12)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 12)
+                                                    .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
+                                            )
+                                            .padding(.horizontal)
+                                            
+                                            if let error = errorMessage {
+                                                Text(error)
+                                                    .font(.footnote)
+                                                    .foregroundColor(DesignColor.mainRed)
+                                                    .multilineTextAlignment(.center)
+                                                    .padding(.horizontal)
+                                            }
+                                            
+                                            if isBinding {
+                                                ProgressView("Привязка датчика...")
+                                                    .padding(.horizontal)
+                                            }
                                         }
                                     }
                                 }
@@ -3612,6 +3632,14 @@ struct GreenhouseDetailView: View {
                 workers = fetchedWorkers
             }
         } catch {
+            // Игнорируем ошибку отмены - это нормальное поведение SwiftUI при исчезновении view
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                return
+            }
+            // Проверяем, не отменена ли задача
+            if Task.isCancelled {
+                return
+            }
             print("❌ Ошибка загрузки работников: \(error)")
             await MainActor.run {
                 workers = []

@@ -203,6 +203,7 @@ struct NotificationRowView: View {
     private func formatDate(_ date: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
+        formatter.locale = Locale(identifier: "ru_RU")
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
