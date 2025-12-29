@@ -1581,6 +1581,56 @@ struct SensorCardView: View {
         return "Датчик"
     }
     
+    // Получаем данные датчика
+    private var sensorData: SensorReadingOut? {
+        // Проверяем, есть ли sensor_id
+        guard let sensorId = greenhouse.sensor_id, !sensorId.isEmpty else {
+            return nil
+        }
+        
+        // Сначала проверяем данные из SensorDataManager (данные с сервера через WebSocket)
+        if let sensorData = sensorDataManager.getSensorData(greenhouseId: greenhouse.id) {
+            return sensorData
+        }
+        
+        // Если нет данных в SensorDataManager, проверяем BLEManager
+        if let connectedDevice = bleManager.lastConnectedDevice,
+           let bleSensorData = bleManager.sensors[connectedDevice.id] {
+            // Проверяем, совпадает ли UUID подключенного устройства с ble_identifier датчика этой теплицы
+            let connectedDeviceUUID = connectedDevice.id.uuidString
+            
+            // Получаем сохраненный ble_identifier для этой теплицы
+            let savedBLEIdentifier = UserDefaults.standard.string(forKey: "greenhouse_\(greenhouse.id)_ble_identifier")
+            
+            // Если есть сохраненный ble_identifier и он совпадает с подключенным устройством
+            if let savedBLE = savedBLEIdentifier, savedBLE == connectedDeviceUUID {
+                return SensorReadingOut(
+                    id: "",
+                    sensor_id: greenhouse.sensor_id ?? "",
+                    greenhouse_id: greenhouse.id,
+                    temperature: bleSensorData.temperature,
+                    humidity: bleSensorData.humidity,
+                    created_at: ISO8601DateFormatter().string(from: Date())
+                )
+            }
+            
+            // Если нет сохраненного ble_identifier, но устройство подключено и у теплицы есть sensor_id
+            // Предполагаем, что это тот же датчик (для обратной совместимости)
+            if savedBLEIdentifier == nil {
+                return SensorReadingOut(
+                    id: "",
+                    sensor_id: greenhouse.sensor_id ?? "",
+                    greenhouse_id: greenhouse.id,
+                    temperature: bleSensorData.temperature,
+                    humidity: bleSensorData.humidity,
+                    created_at: ISO8601DateFormatter().string(from: Date())
+                )
+            }
+        }
+        
+        return nil
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             // Верхняя часть: иконка датчика, название датчика и теплицы
@@ -1606,6 +1656,29 @@ struct SensorCardView: View {
                     Text(greenhouse.name)
                         .font(.footnote)
                         .foregroundColor(.secondary)
+                    
+                    // Данные датчика (температура и влажность) под названием теплицы
+                    if let sensorId = greenhouse.sensor_id, !sensorId.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sensor")
+                                .foregroundColor(DesignColor.myDarkBlue.opacity(0.8))
+                                .font(.caption)
+                            HStack(spacing: 8) {
+                                Text(sensorData != nil ? String(format: "%.1f°C", sensorData!.temperature) : "--°C")
+                                    .font(.caption)
+                                    .foregroundColor(DesignColor.myDarkBlue.opacity(0.8))
+                                
+                                Text(sensorData != nil ? String(format: "%.0f%%", sensorData!.humidity) : "--%")
+                                    .font(.caption)
+                                    .foregroundColor(DesignColor.myDarkBlue.opacity(0.8))
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(DesignColor.myDarkBlue.opacity(0.1))
+                        .cornerRadius(20)
+                        .padding(.top, 4)
+                    }
                 }
                 
                  Spacer()
@@ -1648,12 +1721,24 @@ struct SensorCardView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-            
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
         )
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SensorDataUpdated"))) { notification in
+            // Обновляем UI при обновлении данных через глобальный менеджер
+            // Данные уже обновлены в sensorDataManager, просто обновляем view
+        }
+        .onReceive(sensorDataManager.$sensorData) { _ in
+            // Обновляем данные при изменении в глобальном менеджере
+        }
+        .onReceive(bleManager.$sensors) { _ in
+            // Обновляем данные при изменении BLE данных
+        }
+        .onChange(of: bleManager.lastConnectedDevice?.id) { _ in
+            // Обновляем данные при изменении подключенного устройства
+        }
     }
     
     private func disconnectSensor() async {
