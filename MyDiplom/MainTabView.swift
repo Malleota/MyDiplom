@@ -1867,7 +1867,7 @@ struct WorkerReportBlockView: View {
     @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             // Заголовок блока
             HStack(alignment: .center, spacing: 12) {
                 Text("Мой отчет")
@@ -1907,72 +1907,73 @@ struct WorkerReportBlockView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 32)
                 } else {
-                    VStack(spacing: 0) {
-                        // Заголовок таблицы
-                        HStack(spacing: 0) {
-                            Text("Действие")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        VStack(spacing: 0) {
+                            // Заголовок таблицы
+                            HStack(spacing: 0) {
+                                Text("Действие")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 100, alignment: .leading)
+                                
+                                Text("Когда")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 120, alignment: .leading)
+                                
+                                Text("Теплица")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 150, alignment: .leading)
+                                
+                                Text("Растение")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 150, alignment: .leading)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(Color(.secondarySystemBackground))
                             
-                            Text("Когда")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            // Строки таблицы (показываем первые 5)
+                            ForEach(Array(allEvents.prefix(5))) { event in
+                                WorkerReportRowView(
+                                    event: event,
+                                    greenhouseName: getGreenhouseName(greenhouseId: event.greenhouse_id),
+                                    plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id),
+                                    greenhouseId: event.greenhouse_id
+                                )
+                                .environmentObject(manager)
+                                .environmentObject(sensorDataManager)
+                                .environmentObject(wateringDataManager)
+                                .environmentObject(fertilizingDataManager)
+                            }
                             
-                            Text("Теплица")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            
-                            Text("Растение")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(.horizontal)
-                        .padding(.vertical, 12)
-                        .background(Color(.secondarySystemBackground))
-                        
-                        // Строки таблицы (показываем первые 5)
-                        ForEach(Array(allEvents.prefix(5))) { event in
-                            WorkerReportRowView(
-                                event: event,
-                                greenhouseName: getGreenhouseName(greenhouseId: event.greenhouse_id),
-                                plantTypeName: getPlantTypeName(plantInstanceId: event.plant_instance_id),
-                                greenhouseId: event.greenhouse_id
-                            )
-                            .environmentObject(manager)
-                            .environmentObject(sensorDataManager)
-                            .environmentObject(wateringDataManager)
-                            .environmentObject(fertilizingDataManager)
-                        }
-                        
-                        // Кнопка "Показать все" если событий больше 5
-                        if allEvents.count > 5 {
-                            Button(action: {
-                                // Можно добавить навигацию к полному отчету
-                            }) {
-                                Text("Показать все (\(allEvents.count))")
-                                    .font(.subheadline)
-                                    .foregroundColor(DesignColor.mainAccent)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
+                            // Кнопка "Показать все" если событий больше 5
+                            if allEvents.count > 5 {
+                                Button(action: {
+                                    // Можно добавить навигацию к полному отчету
+                                }) {
+                                    Text("Показать все (\(allEvents.count))")
+                                        .font(.subheadline)
+                                        .foregroundColor(DesignColor.mainAccent)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .padding(.horizontal, 16)
                             }
                         }
+                        // Минимальная ширина = сумма всех колонок (100 + 120 + 150 + 150) + отступы
+                        .frame(minWidth: 520 + 32)
                     }
                     .padding(.top, 16)
                 }
             }
         }
-        .padding(.vertical, 16)
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .padding(.horizontal)
     }
     
     private func getGreenhouseName(greenhouseId: String) -> String {
