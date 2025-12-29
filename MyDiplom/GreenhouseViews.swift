@@ -3249,7 +3249,7 @@ struct GreenhouseDetailView: View {
                 VStack(spacing: 0) {
                     // Заголовок и данные датчика (всегда видимы)
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 12) {
                             // Заголовок: Название и описание с картинкой
                             HStack(alignment: .top, spacing: 12) {
                                 // Вертикальный контейнер с названием и описанием
@@ -3363,7 +3363,7 @@ struct GreenhouseDetailView: View {
                                         .padding(.horizontal)
                                     }
                                 } else {
-                                    // Датчик не подключен (показываем только для не-рабочих)
+                                    // Датчик не подключен
                                     if !isWorker {
                                         VStack(spacing: 16) {
                                             // Карточка подключения датчика
@@ -3425,10 +3425,34 @@ struct GreenhouseDetailView: View {
                                                     .padding(.horizontal)
                                             }
                                         }
+                                    } else {
+                                        // Плашка для рабочих
+                                        HStack(alignment: .center) {
+                                            HStack(alignment: .center, spacing: 8) {
+                                                Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                                                    .font(.subheadline)
+                                                Text("Датчик не подключён")
+                                                    .font(.subheadline)
+                                                    .fontWeight(.medium)
+                                                    .tracking(-0.5)
+                                                    .lineSpacing(15)
+                                            }
+                                            
+                                            Spacer()
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding()
+                                        .background(Color(.systemBackground))
+                                        .cornerRadius(12)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(DesignColor.Fills.tertiar, lineWidth: 1.0)
+                                        )
+                                        .padding(.horizontal)
                                     }
                                 }
                             }
-                            .padding(.top, 8)
+                            .padding(.top, 4)
                             
                             // TabView для вкладок
                             VStack(spacing: 0) {
@@ -3448,7 +3472,7 @@ struct GreenhouseDetailView: View {
                                     selection: $selectedTab
                                 )
                                 .padding(.horizontal)
-                                .padding(.top, 16)
+                                .padding(.top, 8)
                                 
                                 // Контент вкладок
                                 Group {
@@ -3462,7 +3486,7 @@ struct GreenhouseDetailView: View {
                                     }
                                 }
                             }
-                            .padding(.top, 8)
+                            .padding(.top, 4)
                         }
                     }
                 }

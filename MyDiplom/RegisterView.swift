@@ -23,7 +23,6 @@ struct RegisterView: View {
     @State private var isLoading: Bool = false
     @State private var showExitAlert: Bool = false
     @State private var hasAttemptedSubmit: Bool = false
-    @FocusState private var isPasswordFocused: Bool
     
     private var hasData: Bool {
         !name.isEmpty || !email.isEmpty || !password.isEmpty
@@ -124,8 +123,7 @@ struct RegisterView: View {
                                     state: passwordError == nil ? .normal : .error,
                                     textContentType: .newPassword,
                                     autocapitalization: .never,
-                                    submitLabel: .done,
-                                    onFocusChange: { isPasswordFocused = $0 }
+                                    submitLabel: .done
                                 )
                                 .onChange(of: password) { newValue in
                                     if hasAttemptedSubmit {
@@ -134,13 +132,6 @@ struct RegisterView: View {
                                         passwordError = nil
                                     }
                                     generalError = nil
-                                }
-                                
-                                // Подсказка зеленым цветом, когда поле в фокусе и есть хотя бы 1 символ, но пароль еще не валиден
-                                if isPasswordFocused && !password.isEmpty && validatePassword(password, showErrors: true) != nil {
-                                    Text("Минимум 6 символов, одна строчная и одна заглавная латинская буква.")
-                                        .font(.footnote)
-                                        .foregroundColor(.green)
                                 }
                                 
                                 if let error = passwordError {

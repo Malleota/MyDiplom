@@ -2190,6 +2190,7 @@ class SummaryViewModel: ObservableObject {
     // Данные по рабочим
     @Published var allWorkers: [UserOut] = []
     @Published var workerEvents: [String: [WaterEventOut]] = [:] // userId -> [events]
+    @Published var allEvents: [WaterEventOut] = [] // Все события (не только рабочих)
     
     // Флаги загруженных данных
     private var greenhousesDataLoaded = false
@@ -2250,6 +2251,19 @@ class SummaryViewModel: ObservableObject {
             if let currentUser = AuthManager.shared.currentUser {
                 usersDict[currentUser.id] = currentUser
             }
+            
+            // Загружаем всех пользователей для отчета по рабочим (чтобы видеть всех, кто выполнял действия)
+            if tab == .byWorkers || tab == nil {
+                do {
+                    let allUsersList = try await APIService.shared.getAllUsers()
+                    for user in allUsersList {
+                        usersDict[user.id] = user
+                    }
+                } catch {
+                    print("⚠️ Не удалось загрузить всех пользователей: \(error)")
+                }
+            }
+            
             allUsers = usersDict
             
             // Загружаем данные в зависимости от вкладки
@@ -2439,44 +2453,47 @@ class SummaryViewModel: ObservableObject {
         // Проверяем, не отменена ли задача
         guard !Task.isCancelled else { return }
         
-        // Загружаем события по каждому рабочему параллельно
-        await withTaskGroup(of: Void.self) { group in
-            for worker in allWorkers {
-                group.addTask {
-                    // Проверяем отмену перед каждой загрузкой
-                    guard !Task.isCancelled else { return }
-                    
-                    do {
-                        async let wateringTask = APIService.shared.getWateringEvents(userId: worker.id)
-                        async let fertilizingTask = APIService.shared.getFertilizingEvents(userId: worker.id)
-                        
-                        let watering = try await wateringTask
-                        let fertilizing = try await fertilizingTask
-                        let events = (watering + fertilizing).sorted { $0.created_at > $1.created_at }
-                        
-                        await MainActor.run {
-                            self.workerEvents[worker.id] = events
-                        }
-                    } catch {
-                        // Игнорируем ошибку отмены
-                        if let urlError = error as? URLError, urlError.code == .cancelled {
-                            return
-                        }
-                        if Task.isCancelled {
-                            return
-                        }
-                        print("❌ Ошибка загрузки событий для рабочего \(worker.id): \(error)")
-                    }
+        // Загружаем ВСЕ события (не только рабочих) для отчета по рабочим
+        do {
+            async let allWateringTask = APIService.shared.getWateringEvents()
+            async let allFertilizingTask = APIService.shared.getFertilizingEvents()
+            
+            let allWatering = try await allWateringTask
+            let allFertilizing = try await allFertilizingTask
+            let allEventsCombined = (allWatering + allFertilizing).sorted { $0.created_at > $1.created_at }
+            
+            await MainActor.run {
+                self.allEvents = allEventsCombined
+                
+                // Также сохраняем события по каждому рабочему для обратной совместимости
+                self.workerEvents = [:]
+                for worker in self.allWorkers {
+                    let workerEvents = allEventsCombined.filter { $0.user_id == worker.id }
+                    self.workerEvents[worker.id] = workerEvents
                 }
             }
+        } catch {
+            // Игнорируем ошибку отмены
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                return
+            }
+            if Task.isCancelled {
+                return
+            }
+            print("❌ Ошибка загрузки всех событий: \(error)")
         }
         
         // Проверяем отмену перед загрузкой растений
         guard !Task.isCancelled else { return }
         
-        // Загружаем растения только для тех теплиц, которые есть в событиях рабочих
+        // Получаем загруженные события для определения теплиц
+        let eventsToUse = await MainActor.run {
+            return self.allEvents
+        }
+        
+        // Загружаем растения только для тех теплиц, которые есть в событиях
         let greenhouseIdsInWorkerEvents = Set(
-            workerEvents.values.flatMap { $0.map { $0.greenhouse_id } }
+            eventsToUse.map { $0.greenhouse_id }
         )
         
         // Загружаем растения параллельно только для нужных теплиц
@@ -2572,8 +2589,13 @@ class SummaryViewModel: ObservableObject {
         }
     }
     
-    // Все события рабочих (отсортированные)
+    // Все события (отсортированные) - теперь включает все действия, не только рабочих
     var allWorkerEventsSorted: [WaterEventOut] {
+        // Используем allEvents, если они загружены, иначе fallback на старый способ
+        if !allEvents.isEmpty {
+            return allEvents
+        }
+        // Fallback для обратной совместимости
         return allWorkers.flatMap { worker in
             workerEvents[worker.id] ?? []
         }.sorted { $0.created_at > $1.created_at }
@@ -2858,14 +2880,14 @@ struct SummaryGeneralView: View {
                     // Вторая строка: Выполнено поливов и Выполнено удобрений
                     HStack(spacing: 12) {
                         StatisticCardView(
-                            title: "Всего поливов",
+                            title: "Поливы",
                             value: "\(viewModel.filteredWateringEvents.count)",
                             icon: "drop",
                             borderColor: DesignColor.myBlue
                         )
                         
                         StatisticCardView(
-                            title: "Всего удобрений",
+                            title: "Удобрения",
                             value: "\(viewModel.filteredFertilizingEvents.count)",
                             icon: "pills",
                             borderColor: DesignColor.myBrown
@@ -3041,7 +3063,7 @@ struct SummaryByWorkersView: View {
                         VStack(spacing: 0) {
                             // Заголовок таблицы
                             HStack(spacing: 0) {
-                                Text("Рабочий")
+                                Text("Пользователь")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
