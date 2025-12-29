@@ -344,7 +344,9 @@ struct HomeView: View {
     @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var viewModel = HomeViewModel()
+    @StateObject private var notificationStore = NotificationStore.shared
     @State private var showProfile = false
+    @State private var showNotifications = false
     @State private var hasInitialLoadStarted = false
     
     // Состояния для отчета рабочего
@@ -394,6 +396,28 @@ struct HomeView: View {
                                 .font(.title2.bold())
                             
                             Spacer()
+                            
+                            // Кнопка уведомлений
+                            Button(action: {
+                                showNotifications = true
+                            }) {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "bell.fill")
+                                        .font(.title3)
+                                        .foregroundColor(DesignColor.myDarkBlue)
+                                    
+                                    // Бейдж с количеством непрочитанных
+                                    if notificationStore.unreadCount > 0 {
+                                        Text("\(notificationStore.unreadCount)")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(4)
+                                            .background(Color.red)
+                                            .clipShape(Circle())
+                                            .offset(x: 8, y: -8)
+                                    }
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal)
@@ -625,6 +649,14 @@ struct HomeView: View {
                             await authManager.loadUserData()
                         }
                     }
+            }
+            .sheet(isPresented: $showNotifications) {
+                NotificationsView()
+                    .environmentObject(notificationStore)
+                    .environmentObject(manager)
+                    .environmentObject(sensorDataManager)
+                    .environmentObject(wateringDataManager)
+                    .environmentObject(fertilizingDataManager)
             }
             .task {
                 if authManager.currentUser == nil {

@@ -45,6 +45,48 @@ class NotificationManager {
     ) {
         print("📤 NotificationManager: Создание уведомления - теплица: \(greenhouseName) (ID: \(greenhouseId)), сообщение: \(message), серьезность: \(severity)")
         
+        // Проверяем на дубликаты перед отправкой
+        Task { @MainActor in
+            let appNotification = AppNotification(
+                type: "sensor_alert",
+                greenhouseId: greenhouseId,
+                greenhouseName: greenhouseName,
+                title: "⚠️ Предупреждение: \(greenhouseName)",
+                message: message,
+                severity: severity
+            )
+            
+            // Проверяем, есть ли уже такое же уведомление (в течение последнего часа)
+            if NotificationStore.shared.hasDuplicateNotification(
+                type: "sensor_alert",
+                greenhouseId: greenhouseId,
+                message: message,
+                withinMinutes: 60
+            ) {
+                print("⚠️ NotificationManager: Пропущено дублирующее уведомление для теплицы \(greenhouseName): \(message)")
+                return
+            }
+            
+            // Добавляем уведомление в хранилище
+            NotificationStore.shared.addNotification(appNotification)
+            
+            // Отправляем push-уведомление
+            await sendPushNotification(
+                greenhouseId: greenhouseId,
+                greenhouseName: greenhouseName,
+                message: message,
+                severity: severity
+            )
+        }
+    }
+    
+    /// Отправляет push-уведомление в систему
+    private func sendPushNotification(
+        greenhouseId: String,
+        greenhouseName: String,
+        message: String,
+        severity: String
+    ) async {
         let content = UNMutableNotificationContent()
         content.title = "⚠️ Предупреждение: \(greenhouseName)"
         content.body = message
