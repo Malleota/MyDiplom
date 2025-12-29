@@ -88,7 +88,7 @@ class NotificationManager {
         severity: String
     ) async {
         let content = UNMutableNotificationContent()
-        content.title = "⚠️ Предупреждение: \(greenhouseName)"
+        content.title = "Предупреждение: \(greenhouseName)"
         content.body = message
         content.sound = .default
         

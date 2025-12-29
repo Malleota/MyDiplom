@@ -402,9 +402,9 @@ struct HomeView: View {
                                 showNotifications = true
                             }) {
                                 ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "bell.fill")
+                                    Image(systemName: "bell")
                                         .font(.title3)
-                                        .foregroundColor(DesignColor.myDarkBlue)
+                                        .foregroundColor(.primary)
                                     
                                     // Бейдж с количеством непрочитанных
                                     if notificationStore.unreadCount > 0 {
