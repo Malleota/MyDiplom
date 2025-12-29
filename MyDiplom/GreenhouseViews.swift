@@ -1766,7 +1766,10 @@ class EditGreenhouseViewModel: ObservableObject {
                 target_hum_max: humMax
             )
             
-            _ = try await APIService.shared.updateGreenhouse(id: greenhouse.id, greenhouseUpdate)
+            let updatedGreenhouse = try await APIService.shared.updateGreenhouse(id: greenhouse.id, greenhouseUpdate)
+            
+            // Обновляем кэш теплицы в SensorDataManager для проверки норм
+            SensorDataManager.shared.updateGreenhouseCache(updatedGreenhouse)
             
             // 2. Добавляем новые растения или увеличиваем количество существующих
             for newPlant in newPlants {
@@ -2784,7 +2787,6 @@ struct GreenhouseDetailView: View {
                 seenIds.insert(event.id)
                 uniqueEvents.append(event)
             } else {
-                print("⚠️ Обнаружен дубликат события в отчете: \(event.id), тип: \(event.type), дата: \(event.created_at)")
             }
         }
         return uniqueEvents.sorted { event1, event2 in
@@ -3554,7 +3556,6 @@ struct GreenhouseDetailView: View {
             await MainActor.run {
                 workers = fetchedWorkers
             }
-            print("👷 loadWorkers: Загружено \(fetchedWorkers.count) работников")
         } catch {
             print("❌ Ошибка загрузки работников: \(error)")
             await MainActor.run {
@@ -3812,7 +3813,6 @@ struct GreenhouseDetailView: View {
             UserDefaults.standard.set(bleIdentifier, forKey: "greenhouse_\(greenhouseId)_ble_identifier")
             
             // Подключаемся к устройству через BLE
-            print("Подключение к устройству через BLE...")
             await MainActor.run {
                 bleManager.connect(to: device)
             }
@@ -4216,8 +4216,6 @@ struct PlantCardView: View {
     }
     
     private func waterPlant() async {
-        print("🔵 waterPlant: Начало выполнения для растения \(plantInstance.id)")
-        
         // Дополнительная проверка на случай, если флаг не был установлен в обработчике
         // (защита от прямого вызова функции)
         let shouldProceed = await MainActor.run {

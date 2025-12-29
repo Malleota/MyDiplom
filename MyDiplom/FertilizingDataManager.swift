@@ -28,7 +28,6 @@ class FertilizingDataManager: ObservableObject {
             if plantFertilizings.isEmpty {
                 // Если нет растений, используем общий эндпоинт для теплицы
                 if let nextFertilizing = try await APIService.shared.getNextFertilizing(greenhouseId: greenhouse.id) {
-                    print("🌿 FertilizingDataManager: Загружены данные о следующем удобрении для теплицы \(greenhouse.name) (нет растений), days_until=\(nextFertilizing.days_until?.description ?? "nil")")
                     nextFertilizingData[greenhouse.id] = nextFertilizing
                     
                     NotificationCenter.default.post(
@@ -87,7 +86,6 @@ class FertilizingDataManager: ObservableObject {
             
             // Если нашли ближайшее удобрение, сохраняем его
             if let closest = closestFertilizing {
-                print("🌿 FertilizingDataManager: Найдено ближайшее удобрение для теплицы \(greenhouse.name): растение '\(closest.plant_name ?? "неизвестно")', days_until=\(closest.days_until?.description ?? "nil"), is_overdue=\(closest.is_overdue)")
                 nextFertilizingData[greenhouse.id] = closest
                 
                 NotificationCenter.default.post(
@@ -113,7 +111,6 @@ class FertilizingDataManager: ObservableObject {
                 dateTo: dateTo
             )
             fertilizingEvents[greenhouseId] = events
-            print("🌿 FertilizingDataManager: Загружено \(events.count) событий удобрения для теплицы \(greenhouseId)")
         } catch {
             print("❌ FertilizingDataManager: Ошибка загрузки событий удобрения: \(error)")
         }

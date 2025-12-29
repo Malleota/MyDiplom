@@ -19,7 +19,6 @@ class APIService {
     func getFullImageURL(_ imageUrl: String) -> URL? {
         // Если URL уже полный (начинается с http:// или https://)
         if imageUrl.hasPrefix("http://") || imageUrl.hasPrefix("https://") {
-            print("📸 getFullImageURL: URL уже полный: \(imageUrl)")
             return URL(string: imageUrl)
         }
         
@@ -31,7 +30,6 @@ class APIService {
             fullURL = "\(baseURL)/\(imageUrl)"
         }
         
-        print("📸 getFullImageURL: Преобразован относительный URL: \(imageUrl) -> \(fullURL)")
         return URL(string: fullURL)
     }
     
@@ -259,8 +257,6 @@ class APIService {
         }
         
         let userRole = AuthManager.shared.currentUser?.role ?? "unknown"
-        print("🏠 getGreenhouses: Запрос списка теплиц для пользователя с ролью: \(userRole)")
-        
         let url = URL(string: "\(baseURL)/greenhouses")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -276,9 +272,6 @@ class APIService {
         if httpResponse.statusCode == 200 {
             let decoder = JSONDecoder()
             let greenhouses = try decoder.decode([GreenhouseOut].self, from: data)
-            if userRole == "worker" {
-                print("👷 getGreenhouses: Рабочий должен видеть только привязанные теплицы")
-            }
             return greenhouses
         } else if httpResponse.statusCode == 401 {
             print("❌ getGreenhouses: Ошибка 401 - Не авторизован")
@@ -435,7 +428,6 @@ class APIService {
         }
         
         if httpResponse.statusCode == 204 {
-            print("✅ Теплица \(id) успешно удалена")
             return
         } else if httpResponse.statusCode == 401 {
             throw APIError(detail: "Не авторизован")
@@ -628,8 +620,6 @@ class APIService {
         let encoder = JSONEncoder()
         request.httpBody = try encoder.encode(sensorData)
         
-        print("📤 sendSensorData: Отправка данных датчика ble_identifier=\(bleIdentifier), temp=\(temperature), hum=\(humidity)")
-        
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             
@@ -797,16 +787,12 @@ class APIService {
         let encoder = JSONEncoder()
         request.httpBody = try encoder.encode(wateringEvent)
         
-        print("💧 createWateringEvent: Создание события полива для теплицы \(greenhouseId), растение \(plantInstanceId ?? "nil")")
-        
         let (data, response) = try await URLSession.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
             print("❌ createWateringEvent: Неверный ответ сервера")
             throw APIError(detail: "Неверный ответ сервера")
         }
-        
-        print("💧 createWateringEvent: Статус ответа = \(httpResponse.statusCode)")
         
         if httpResponse.statusCode == 201 {
             let decoder = JSONDecoder()

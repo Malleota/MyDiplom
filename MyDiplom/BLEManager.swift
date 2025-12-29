@@ -61,7 +61,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         if let uuidString = UserDefaults.standard.string(forKey: savedDeviceKey),
            let uuid = UUID(uuidString: uuidString) {
             savedDeviceId = uuid
-            print("Saved device id loaded:", uuid)
         }
 
         central = CBCentralManager(delegate: self, queue: .main)
@@ -72,36 +71,29 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     /// Обновляет список привязанных датчиков и проверяет, нужно ли автоподключаться
     func updateBoundSensors(_ bleIdentifiers: [String]) {
         boundSensorIdentifiers = Set(bleIdentifiers)
-        print("📋 updateBoundSensors: Обновлен список привязанных датчиков: \(bleIdentifiers)")
         
         // Если есть сохраненный датчик и он привязан к теплице, разрешаем автоподключение
         if let savedId = savedDeviceId {
             let savedIdString = savedId.uuidString
             if boundSensorIdentifiers.contains(savedIdString) {
-                print("✅ Сохраненный датчик \(savedIdString) привязан к теплице, автоподключение разрешено")
                 // Если Bluetooth включен и еще не подключены, начинаем сканирование
                 if central.state == .poweredOn, lastConnectedDevice == nil, !disableAutoConnect {
                     central.scanForPeripherals(withServices: nil, options: nil)
-                    print("AUTO SCAN STARTED FOR BOUND SENSOR")
                     
                     autoConnectTimer?.invalidate()
                     autoConnectTimer = Timer.scheduledTimer(withTimeInterval: autoConnectTimeout, repeats: false) { [weak self] _ in
                         guard let self = self else { return }
                         if self.lastConnectedDevice == nil {
                             self.stopScan()
-                            print("Auto-connect timeout: bound sensor not found")
                         }
                     }
                 }
-            } else {
-                print("⚠️ Сохраненный датчик \(savedIdString) не привязан к теплице, автоподключение не требуется")
             }
         }
     }
 
     func startScan(disableAutoConnect: Bool = false) {
         guard central.state == .poweredOn else {
-            print("Cannot start scan, state =", central.state.rawValue)
             return
         }
         // Для ручного поиска очищаем список
@@ -112,26 +104,22 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             withServices: nil,
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
         )
-        print("SCAN STARTED (autoConnect disabled: \(disableAutoConnect))")
     }
 
     func stopScan() {
         central?.stopScan()
         autoConnectTimer?.invalidate()
         autoConnectTimer = nil
-        print("SCAN STOPPED")
     }
 
     // Подключение к выбранному устройству + запоминание
     func connect(to device: DiscoveredDevice) {
         guard let peripheral = peripherals[device.id] else {
-            print("No peripheral for id", device.id)
             return
         }
         connectedPeripheral = peripheral
         peripheral.delegate = self
         central.connect(peripheral, options: nil)
-        print("CONNECT TO:", device.name)
 
         DispatchQueue.main.async {
             self.lastConnectedDevice = device
@@ -146,7 +134,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     func disconnect() {
         if let peripheral = connectedPeripheral {
             central.cancelPeripheralConnection(peripheral)
-            print("DISCONNECT FROM:", peripheral.identifier)
         }
         
         // Очищаем сохраненное устройство
@@ -164,7 +151,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         bluetoothState = central.state
-        print("Bluetooth state:", central.state.rawValue)
 
         // Если Bluetooth включён и есть сохранённое устройство, привязанное к теплице — начинаем сканировать
         // Но только если автоподключение не отключено
@@ -177,15 +163,12 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                 withServices: nil,
                 options: nil
             )
-            print("AUTO SCAN STARTED FOR SAVED DEVICE (bound to greenhouse)")
-            
             // Устанавливаем таймаут для автоподключения
             autoConnectTimer?.invalidate()
             autoConnectTimer = Timer.scheduledTimer(withTimeInterval: autoConnectTimeout, repeats: false) { [weak self] _ in
                 guard let self = self else { return }
                 if self.lastConnectedDevice == nil {
                     self.stopScan()
-                    print("Auto-connect timeout: device not found")
                 }
             }
         }
@@ -243,13 +226,12 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     func centralManager(_ central: CBCentralManager,
                         didFailToConnect peripheral: CBPeripheral,
                         error: Error?) {
-        print("Failed to connect:", error?.localizedDescription ?? "unknown error")
+        // Ошибка подключения обрабатывается в UI
     }
 
     func centralManager(_ central: CBCentralManager,
                         didDisconnectPeripheral peripheral: CBPeripheral,
                         error: Error?) {
-        print("Disconnected:", peripheral.identifier, "error:", error?.localizedDescription ?? "none")
         if connectedPeripheral?.identifier == peripheral.identifier {
             connectedPeripheral = nil
         }
@@ -259,8 +241,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     func peripheral(_ peripheral: CBPeripheral,
                     didDiscoverServices error: Error?) {
-        if let error = error {
-            print("discoverServices error:", error.localizedDescription)
+        if error != nil {
             return
         }
         guard let services = peripheral.services else { return }
@@ -272,8 +253,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     func peripheral(_ peripheral: CBPeripheral,
                     didDiscoverCharacteristicsFor service: CBService,
                     error: Error?) {
-        if let error = error {
-            print("discoverCharacteristics error:", error.localizedDescription)
+        if error != nil {
             return
         }
         guard let chars = service.characteristics else { return }
@@ -289,16 +269,13 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     func peripheral(_ peripheral: CBPeripheral,
                     didUpdateNotificationStateFor characteristic: CBCharacteristic,
                     error: Error?) {
-        if let error = error {
-            print("❌ BLE: notify state error:", error.localizedDescription)
-        }
+        // Ошибка уведомлений обрабатывается автоматически
     }
 
     func peripheral(_ peripheral: CBPeripheral,
                     didUpdateValueFor characteristic: CBCharacteristic,
                     error: Error?) {
-        if let error = error {
-            print("didUpdateValue error:", error.localizedDescription)
+        if error != nil {
             return
         }
         guard characteristic.uuid == tempHumidityUUID,
@@ -350,7 +327,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     private func interpretSensorData(data: Data, peripheralId: UUID) -> SensorData? {
         let bytes = [UInt8](data)
         guard bytes.count >= 5 else {
-            print("Not enough bytes:", bytes.count)
             return nil
         }
 

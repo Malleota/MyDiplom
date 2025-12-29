@@ -202,7 +202,6 @@ struct PlantsView: View {
         
         do {
             try await APIService.shared.deletePlantType(plantTypeId: plantType.id)
-            print("✅ Растение \(plantType.name) успешно удалено из справочника")
             
             // Обновляем список растений
             await loadPlantTypesAsync()
@@ -956,7 +955,6 @@ struct CreatePlantView: View {
         
         do {
             availableImages = try await APIService.shared.getGreenhouseImages()
-            print("📸 loadImages: Загружено \(availableImages.count) изображений")
             
             // Предвыбираем первую картинку, если нет загруженного изображения
             if !availableImages.isEmpty && selectedImageId == nil && selectedImage == nil {
@@ -1005,8 +1003,6 @@ struct CreatePlantView: View {
                     }
                     
                     let filename = "plant_\(UUID().uuidString).\(fileExtension)"
-                    
-                    print("📤 createPlant: Загрузка изображения \(filename), размер: \(finalImageData.count) байт")
                     
                     let uploadResponse = try await APIService.shared.uploadPlantImage(
                         imageData: finalImageData,
@@ -1609,7 +1605,6 @@ class EditPlantViewModel: ObservableObject {
         
         do {
             availableImages = try await APIService.shared.getGreenhouseImages()
-            print("📸 loadImages: Загружено \(availableImages.count) изображений")
             
             // Находим и выбираем текущее изображение растения
             if let imageUrl = plantType.image_url {
@@ -1623,21 +1618,18 @@ class EditPlantViewModel: ObservableObject {
                     selectedImageId = currentImage.id
                     originalImageId = currentImage.id
                     customImageUrl = nil
-                    print("📸 loadImages: Найдено текущее изображение с ID: \(currentImage.id)")
                 } else {
                     // Кастомное изображение, которого нет в списке доступных
                     customImageUrl = imageUrl
                     originalCustomImageUrl = imageUrl
                     selectedImageId = nil
                     originalImageId = nil
-                    print("📸 loadImages: Найдено кастомное изображение: \(imageUrl)")
                 }
             } else if !availableImages.isEmpty && selectedImageId == nil {
                 // Если у растения нет изображения, предвыбираем первую картинку
                 selectedImageId = availableImages.first?.id
                 originalImageId = availableImages.first?.id
                 customImageUrl = nil
-                print("📸 loadImages: Предвыбрано изображение с ID: \(selectedImageId ?? "nil")")
             }
         } catch {
             print("❌ Ошибка загрузки изображений: \(error)")
@@ -1686,8 +1678,6 @@ class EditPlantViewModel: ObservableObject {
                 
                 let filename = "plant_\(UUID().uuidString).\(fileExtension)"
                 
-                print("📤 savePlant: Загрузка изображения \(filename), размер: \(finalImageData.count) байт")
-                
                 let uploadResponse = try await APIService.shared.uploadPlantImage(
                     imageData: finalImageData,
                     filename: filename
@@ -1711,7 +1701,6 @@ class EditPlantViewModel: ObservableObject {
             )
             
             _ = try await APIService.shared.updatePlantType(plantTypeId: plantType.id, update: plantUpdate)
-            print("✅ Растение успешно обновлено")
             
             isSuccess = true
             // Отправляем уведомление об обновлении

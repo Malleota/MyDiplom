@@ -28,7 +28,6 @@ class WateringDataManager: ObservableObject {
             if plantWaterings.isEmpty {
                 // Если нет растений, используем общий эндпоинт для теплицы
                 if let nextWatering = try await APIService.shared.getNextWatering(greenhouseId: greenhouse.id) {
-                    print("💧 WateringDataManager: Загружены данные о следующем поливе для теплицы \(greenhouse.name) (нет растений), days_until=\(nextWatering.days_until?.description ?? "nil")")
                     nextWateringData[greenhouse.id] = nextWatering
                     
                     NotificationCenter.default.post(
@@ -87,7 +86,6 @@ class WateringDataManager: ObservableObject {
             
             // Если нашли ближайший полив, сохраняем его
             if let closest = closestWatering {
-                print("💧 WateringDataManager: Найден ближайший полив для теплицы \(greenhouse.name): растение '\(closest.plant_name ?? "неизвестно")', days_until=\(closest.days_until?.description ?? "nil"), is_overdue=\(closest.is_overdue)")
                 nextWateringData[greenhouse.id] = closest
                 
                 NotificationCenter.default.post(
@@ -113,7 +111,6 @@ class WateringDataManager: ObservableObject {
                 dateTo: dateTo
             )
             wateringEvents[greenhouseId] = events
-            print("💧 WateringDataManager: Загружено \(events.count) событий полива для теплицы \(greenhouseId)")
         } catch {
             print("❌ WateringDataManager: Ошибка загрузки событий полива: \(error)")
         }
