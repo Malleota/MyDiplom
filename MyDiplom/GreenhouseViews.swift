@@ -4449,23 +4449,65 @@ struct EditPlantView: View {
         // Инициализируем количество из plantInstance
         _quantity = State(initialValue: String(plantInstance.quantity))
         
-        // Инициализируем дату полива из nextWatering, если она есть
-        if let nextWatering = nextWatering,
-           let nextWateringDateString = nextWatering.next_watering_date,
-           let date = parseDate(nextWateringDateString) {
-            _selectedWateringDate = State(initialValue: date)
-        } else {
-            _selectedWateringDate = State(initialValue: nil)
+        // Инициализируем дату полива из nextWatering
+        var initialWateringDate: Date? = nil
+        if let nextWatering = nextWatering {
+            // Приоритет 1: Используем days_until для вычисления даты следующего полива
+            if let daysUntil = nextWatering.days_until {
+                let calendar = Calendar.current
+                if let nextDate = calendar.date(byAdding: .day, value: daysUntil, to: Date()) {
+                    initialWateringDate = nextDate
+                }
+            }
+            // Приоритет 2: Если нет days_until, проверяем next_watering_date (может быть датой следующего полива)
+            else if let nextWateringDateString = nextWatering.next_watering_date,
+                     let date = parseDate(nextWateringDateString) {
+                // Проверяем, что это дата в будущем (следующий полив)
+                if date > Date() {
+                    initialWateringDate = date
+                }
+            }
+            // Приоритет 3: Если нет days_until и next_watering_date, используем интервал полива
+            if initialWateringDate == nil,
+               let plantType = plantType,
+               let intervalDays = plantType.watering_interval_days {
+                let calendar = Calendar.current
+                if let nextDate = calendar.date(byAdding: .day, value: intervalDays, to: Date()) {
+                    initialWateringDate = nextDate
+                }
+            }
         }
+        _selectedWateringDate = State(initialValue: initialWateringDate)
         
-        // Инициализируем дату удобрения из nextFertilizing, если она есть
-        if let nextFertilizing = nextFertilizing,
-           let nextFertilizingDateString = nextFertilizing.next_watering_date,
-           let date = parseDate(nextFertilizingDateString) {
-            _selectedFertilizingDate = State(initialValue: date)
-        } else {
-            _selectedFertilizingDate = State(initialValue: nil)
+        // Инициализируем дату удобрения из nextFertilizing
+        var initialFertilizingDate: Date? = nil
+        if let nextFertilizing = nextFertilizing {
+            // Приоритет 1: Используем days_until для вычисления даты следующего удобрения
+            if let daysUntil = nextFertilizing.days_until {
+                let calendar = Calendar.current
+                if let nextDate = calendar.date(byAdding: .day, value: daysUntil, to: Date()) {
+                    initialFertilizingDate = nextDate
+                }
+            }
+            // Приоритет 2: Если нет days_until, проверяем next_watering_date (может быть датой следующего удобрения)
+            else if let nextFertilizingDateString = nextFertilizing.next_watering_date,
+                     let date = parseDate(nextFertilizingDateString) {
+                // Проверяем, что это дата в будущем (следующее удобрение)
+                if date > Date() {
+                    initialFertilizingDate = date
+                }
+            }
+            // Приоритет 3: Если нет days_until и next_watering_date, используем интервал удобрения
+            if initialFertilizingDate == nil,
+               let plantType = plantType,
+               let intervalDays = plantType.fertilizing_interval_days {
+                let calendar = Calendar.current
+                if let nextDate = calendar.date(byAdding: .day, value: intervalDays, to: Date()) {
+                    initialFertilizingDate = nextDate
+                }
+            }
         }
+        _selectedFertilizingDate = State(initialValue: initialFertilizingDate)
     }
     
     var body: some View {
