@@ -196,6 +196,12 @@ struct ProfileView: View {
                 await loadAvatars()
                 selectedAvatarId = authManager.currentUser?.avatar_id
             }
+            .onChange(of: authManager.isAuthenticated) { isAuthenticated in
+                // Автоматически закрываем шторку профиля при выходе из аккаунта
+                if !isAuthenticated {
+                    dismiss()
+                }
+            }
             .alert("Вы точно хотите выйти?", isPresented: $showLogoutAlert) {
                 Button("Остаться", role: .cancel) { }
                 Button("Выйти", role: .destructive) {
@@ -262,10 +268,10 @@ struct AvatarThumbnailView: View {
                             .aspectRatio(contentMode: .fill)
                             .background(Color(UIColor.quaternarySystemFill))
                     } placeholder: {
-                        SkeletonView(width: 64, height: 64, cornerRadius: 32)
+                        SkeletonView(width: 64, height: 64, cornerRadius: 10)
                     }
                 } else {
-                    SkeletonView(width: 64, height: 64, cornerRadius: 32)
+                    SkeletonView(width: 64, height: 64, cornerRadius: 10)
                 }
             }
             .frame(width: 64, height: 64)

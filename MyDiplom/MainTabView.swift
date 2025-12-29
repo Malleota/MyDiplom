@@ -2866,7 +2866,7 @@ struct SummaryGeneralView: View {
                         StatisticCardView(
                             title: "Всего удобрений",
                             value: "\(viewModel.filteredFertilizingEvents.count)",
-                            icon: "leaf",
+                            icon: "pills",
                             borderColor: DesignColor.myBrown
                         )
                     }

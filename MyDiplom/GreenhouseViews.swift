@@ -2479,13 +2479,13 @@ struct WorkerRow: View {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
-                        SkeletonView(width: 50, height: 50, cornerRadius: 25)
+                        SkeletonView(width: 50, height: 50, cornerRadius: 10)
                     case .success(let image):
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     case .failure:
-                        Circle()
+                        RoundedRectangle(cornerRadius: 10)
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 50, height: 50)
                             .overlay(
@@ -2493,15 +2493,15 @@ struct WorkerRow: View {
                                     .foregroundColor(.gray)
                             )
                     @unknown default:
-                        Circle()
+                        RoundedRectangle(cornerRadius: 10)
                             .fill(Color.gray.opacity(0.3))
                             .frame(width: 50, height: 50)
                     }
                 }
                 .frame(width: 50, height: 50)
-                .clipShape(Circle())
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             } else {
-                Circle()
+                RoundedRectangle(cornerRadius: 10)
                     .fill(Color.gray.opacity(0.3))
                     .frame(width: 50, height: 50)
                     .overlay(
