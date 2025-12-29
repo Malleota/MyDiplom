@@ -333,14 +333,8 @@ struct HomeView: View {
 
     var body: some View {
         NavigationView {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 32) {
-                        // Невидимый якорь вверху для контроля позиции скролла
-                        Color.clear
-                            .frame(height: 0)
-                            .id("top")
-                        
+            ScrollView {
+                LazyVStack(spacing: 32) {
                         // Шапка с аватаром и приветствием
                         HStack(spacing: 12) {
                             if authManager.currentUser == nil {
@@ -595,23 +589,9 @@ struct HomeView: View {
                     }
                 }
                 .padding(.vertical, 32)
-                }
                 .modifier(ScrollDismissesKeyboardModifier())
-                .onAppear {
-                    // Сбрасываем позицию скролла в начало при появлении view
-                    DispatchQueue.main.async {
-                        withAnimation(.none) {
-                            proxy.scrollTo("top", anchor: .top)
-                        }
-                    }
-                }
-                .onChange(of: viewModel.isLoading) { _ in
-                    // Предотвращаем автоматическую прокрутку при изменении состояния загрузки
-                    // Не прокручиваем, если данные уже загружены
-                    if !viewModel.isLoading && hasInitialLoadStarted {
-                        // Не делаем ничего - позволяем пользователю оставаться на текущей позиции
-                    }
-                }
+                .id("homeScroll_\(hasInitialLoadStarted ? "loaded" : "loading")")
+                .modifier(ScrollDisabledModifier(isDisabled: viewModel.isLoading && !hasInitialLoadStarted))
             }
             .sheet(isPresented: $showProfile) {
                 ProfileView()
@@ -3057,6 +3037,18 @@ struct ScrollDismissesKeyboardModifier: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 16.0, *) {
             content.scrollDismissesKeyboard(.immediately)
+        } else {
+            content
+        }
+    }
+}
+
+struct ScrollDisabledModifier: ViewModifier {
+    let isDisabled: Bool
+    
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content.scrollDisabled(isDisabled)
         } else {
             content
         }
