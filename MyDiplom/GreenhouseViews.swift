@@ -2616,7 +2616,7 @@ struct ReportRowView: View {
             Text(actionType)
                 .font(.subheadline)
                 .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: 100, alignment: .leading)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(dateString)
@@ -2627,7 +2627,7 @@ struct ReportRowView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: 120, alignment: .leading)
             
             // Имя пользователя с навигацией к профилю
             if let user = user {
@@ -2639,22 +2639,22 @@ struct ReportRowView: View {
                     Text(userName)
                         .font(.subheadline)
                         .foregroundColor(DesignColor.myBlue)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(width: 150, alignment: .leading)
                 }
                 .buttonStyle(PlainButtonStyle())
             } else {
                 Text(userName)
                     .font(.subheadline)
                     .foregroundColor(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(width: 150, alignment: .leading)
             }
             
             Text(plantTypeName)
                 .font(.subheadline)
                 .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: 150, alignment: .leading)
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(Color(.systemBackground))
         .overlay(
@@ -2707,10 +2707,10 @@ struct OverdueReportRowView: View {
     
     private var statusString: String {
         let daysText = "\(report.days_overdue) дней"
-        if report.resolved_at != nil {
+        if isResolved {
             return "Решено: \(daysText)"
         } else {
-            return "\(daysText)"
+            return "Просрочено: \(daysText)"
         }
     }
     
@@ -2758,10 +2758,12 @@ struct OverdueReportRowView: View {
     }
     
     private var isResolved: Bool {
-        if let resolvedAt = report.resolved_at {
-            return !resolvedAt.isEmpty
+        guard let resolvedAt = report.resolved_at else {
+            return false
         }
-        return false
+        // Проверяем, что строка не пустая и не состоит только из пробелов
+        let trimmed = resolvedAt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty
     }
     //Верстка таблицы отчетов 
     var body: some View {
@@ -2774,7 +2776,7 @@ struct OverdueReportRowView: View {
                     .font(.footnote)
                     .foregroundColor(DesignColor.mainRed.opacity(0.8))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: 100, alignment: .leading)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(dateString)
@@ -2785,19 +2787,19 @@ struct OverdueReportRowView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: 120, alignment: .leading)
             
             Text(statusString)
                 .font(.caption)
                 .foregroundColor(DesignColor.mainRed.opacity(0.8))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: 150, alignment: .leading)
             
             Text(report.plant_name ?? "—")
                 .font(.subheadline)
                 .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: 150, alignment: .leading)
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(Color(.systemBackground))
         .overlay(
@@ -3054,14 +3056,12 @@ struct GreenhouseDetailView: View {
     
     // Контент вкладки "Отчеты"
     private var reportsTabContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        Group {
             if isLoadingReports {
                 ProgressView("Загрузка отчетов...")
                     .frame(maxWidth: .infinity)
                     .padding()
             } else {
-                // Отладочная информация
-                
                 if allReportItems.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "doc.text.fill")
@@ -3078,7 +3078,7 @@ struct GreenhouseDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 32)
                 } else {
-                    ScrollView {
+                    ScrollView(.horizontal, showsIndicators: true) {
                         VStack(spacing: 0) {
                             // Заголовок таблицы
                             HStack(spacing: 0) {
@@ -3086,27 +3086,27 @@ struct GreenhouseDetailView: View {
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(width: 100, alignment: .leading)
                                 
                                 Text("Дата и время")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(width: 120, alignment: .leading)
                                 
                                 Text("Детали")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(width: 150, alignment: .leading)
                                 
                                 Text("Тип растения")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(width: 150, alignment: .leading)
                             }
-                            .padding(.horizontal)
+                            .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(Color(.secondarySystemBackground))
                             
@@ -3130,6 +3130,8 @@ struct GreenhouseDetailView: View {
                                 }
                             }
                         }
+                        // Минимальная ширина = сумма всех колонок (100 + 120 + 150 + 150) + отступы
+                        .frame(minWidth: 520 + 32)
                     }
                     .padding(.top, 16)
                 }

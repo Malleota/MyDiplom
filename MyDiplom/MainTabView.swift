@@ -2729,7 +2729,7 @@ struct SummaryByGreenhousesView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
             } else {
-                ScrollView {
+                ScrollView(.horizontal, showsIndicators: true) {
                     VStack(spacing: 0) {
                         // Заголовок таблицы
                         HStack(spacing: 0) {
@@ -2737,27 +2737,27 @@ struct SummaryByGreenhousesView: View {
                                 .font(.caption)
                                 .fontWeight(.semibold)
                                 .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(width: 100, alignment: .leading)
                             
                             Text("Дата и время")
                                 .font(.caption)
                                 .fontWeight(.semibold)
                                 .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(width: 120, alignment: .leading)
                             
                             Text("Детали")
                                 .font(.caption)
                                 .fontWeight(.semibold)
                                 .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(width: 150, alignment: .leading)
                             
                             Text("Тип растения")
                                 .font(.caption)
                                 .fontWeight(.semibold)
                                 .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(width: 150, alignment: .leading)
                         }
-                        .padding(.horizontal)
+                        .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .background(Color(.secondarySystemBackground))
                         
@@ -2815,15 +2815,16 @@ struct SummaryByGreenhousesView: View {
                             }
                             .disabled(!viewModel.canGoToNextReportPage)
                         }
-                        .padding(.horizontal)
+                        .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .background(Color(.secondarySystemBackground))
                     }
+                    // Минимальная ширина = сумма всех колонок (100 + 120 + 150 + 150) + отступы
+                    .frame(minWidth: 520 + 32)
                 }
                 .padding(.top, 16)
             }
         }
-        .padding(.horizontal)
     }
 }
 
@@ -3035,42 +3036,50 @@ struct SummaryByWorkersView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 32)
                 } else {
-                    ScrollView {
+                    ScrollView(.horizontal, showsIndicators: true) {
                         VStack(spacing: 0) {
                             // Заголовок таблицы
                             HStack(spacing: 0) {
+                                Text("Рабочий")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 120, alignment: .leading)
+                                
                                 Text("Действие")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(width: 100, alignment: .leading)
                                 
                                 Text("Когда")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(width: 120, alignment: .leading)
                                 
                                 Text("В какой теплице")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(width: 150, alignment: .leading)
                                 
                                 Text("Тип растения")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(width: 150, alignment: .leading)
                             }
-                            .padding(.horizontal)
+                            .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(Color(.secondarySystemBackground))
                             
                             // Строки таблицы для всех рабочих (пагинированные)
                             ForEach(viewModel.paginatedWorkerEvents) { event in
-                                WorkerReportRowView(
+                                AdminWorkerReportRowView(
                                     event: event,
+                                    workerName: viewModel.getUserName(userId: event.user_id),
+                                    worker: viewModel.getUser(userId: event.user_id),
                                     greenhouseName: viewModel.getGreenhouseName(greenhouseId: event.greenhouse_id),
                                     plantTypeName: viewModel.getPlantTypeName(plantInstanceId: event.plant_instance_id),
                                     greenhouseId: event.greenhouse_id
@@ -3115,16 +3124,172 @@ struct SummaryByWorkersView: View {
                                 }
                                 .disabled(!viewModel.canGoToNextWorkerPage)
                             }
-                            .padding(.horizontal)
+                            .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(Color(.secondarySystemBackground))
                         }
+                        // Минимальная ширина = сумма всех колонок (120 + 100 + 120 + 150 + 150) + отступы
+                        .frame(minWidth: 640 + 32)
                     }
                     .padding(.top, 16)
                 }
             }
         }
-        .padding(.horizontal)
+    }
+}
+
+// MARK: - Admin Worker Report Row View (с ссылкой на рабочего)
+struct AdminWorkerReportRowView: View {
+    let event: WaterEventOut
+    let workerName: String
+    let worker: UserOut?
+    let greenhouseName: String
+    let plantTypeName: String
+    let greenhouseId: String?
+    @EnvironmentObject var bleManager: BLEManager
+    @EnvironmentObject var sensorDataManager: SensorDataManager
+    @EnvironmentObject var wateringDataManager: WateringDataManager
+    @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
+    
+    private var actionType: String {
+        event.type == "watering" ? "Полив" : "Удобрение"
+    }
+    
+    private var dateString: String {
+        guard let date = parseDate(event.created_at) else {
+            return event.created_at
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd.MM.yyyy"
+        return formatter.string(from: date)
+    }
+    
+    private var timeString: String {
+        guard let date = parseDate(event.created_at) else {
+            return ""
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+    
+    private func parseDate(_ dateString: String) -> Date? {
+        // Пробуем ISO8601 форматы
+        var isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = isoFormatter.date(from: dateString) { return date }
+        
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        if let date = isoFormatter.date(from: dateString) { return date }
+        
+        // Исправляем неполный формат "2025-11-25T2"
+        if dateString.contains("T") {
+            let parts = dateString.split(separator: "T")
+            guard parts.count == 2 else { return nil }
+            
+            let datePart = String(parts[0])
+            var timePart = String(parts[1]).replacingOccurrences(of: "Z", with: "")
+            
+            // Удаляем дробные секунды, если есть
+            if let dotIndex = timePart.firstIndex(of: ".") {
+                timePart = String(timePart[..<dotIndex])
+            }
+            
+            // Исправляем неполное время
+            if !timePart.contains(":") {
+                timePart = timePart.count == 1 ? "0\(timePart):00:00" : "\(timePart):00:00"
+            } else {
+                let components = timePart.split(separator: ":")
+                if components.count == 2 {
+                    timePart = "\(timePart):00"
+                }
+            }
+            
+            // Парсим исправленную строку через DateFormatter
+            let fixed = "\(datePart)T\(timePart)"
+            let parser = DateFormatter()
+            parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+            parser.locale = Locale(identifier: "en_US_POSIX")
+            return parser.date(from: fixed)
+        }
+        
+        return nil
+    }
+    
+    var body: some View {
+        HStack(spacing: 0) {
+            // Рабочий с ссылкой
+            if let worker = worker {
+                NavigationLink(destination: WorkerProfileView(user: worker)
+                    .environmentObject(bleManager)
+                    .environmentObject(sensorDataManager)
+                    .environmentObject(wateringDataManager)
+                    .environmentObject(fertilizingDataManager)) {
+                    Text(workerName)
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                        .frame(width: 120, alignment: .leading)
+                }
+                .buttonStyle(PlainButtonStyle())
+            } else {
+                Text(workerName)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .frame(width: 120, alignment: .leading)
+            }
+            
+            Text(actionType)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .frame(width: 100, alignment: .leading)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dateString)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                
+                Text(timeString)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .frame(width: 120, alignment: .leading)
+            
+            // Название теплицы с навигацией
+            if let greenhouseId = greenhouseId {
+                NavigationLink(destination: GreenhouseDetailView(greenhouseId: greenhouseId)
+                    .environmentObject(bleManager)
+                    .environmentObject(sensorDataManager)
+                    .environmentObject(wateringDataManager)
+                    .environmentObject(fertilizingDataManager)) {
+                    Text(greenhouseName)
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                        .frame(width: 150, alignment: .leading)
+                }
+                .buttonStyle(PlainButtonStyle())
+            } else {
+                Text(greenhouseName)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .frame(width: 150, alignment: .leading)
+            }
+            
+            Text(plantTypeName)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .frame(width: 150, alignment: .leading)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(.systemBackground))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(Color(.separator)),
+            alignment: .bottom
+        )
     }
 }
 
