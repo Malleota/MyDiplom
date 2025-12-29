@@ -605,6 +605,8 @@ class APIService {
             throw APIError(detail: "Не авторизован")
         }
         
+        print("📤 APIService: Отправка данных датчика на сервер - BLE: \(bleIdentifier), temp: \(temperature)°C, hum: \(humidity)%")
+        
         let url = URL(string: "\(baseURL)/sensors/data")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -629,12 +631,13 @@ class APIService {
             }
             
             if httpResponse.statusCode == 204 {
+                print("✅ APIService: Данные датчика успешно отправлены на сервер (204)")
                 return
             } else if httpResponse.statusCode == 401 {
                 print("❌ sendSensorData: Ошибка 401 - Не авторизован")
                 throw APIError(detail: "Не авторизован")
             } else if httpResponse.statusCode == 404 {
-                print("⚠️ sendSensorData: Ошибка 404 - Датчик не найден")
+                print("⚠️ sendSensorData: Ошибка 404 - Датчик не найден (возможно, еще не привязан)")
                 // Не бросаем ошибку, так как датчик может быть еще не привязан
                 return
             } else {

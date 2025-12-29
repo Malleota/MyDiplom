@@ -160,6 +160,7 @@ class WebSocketManager: ObservableObject {
             
             switch type {
             case "connected":
+                print("✅ WebSocket: Подключение установлено")
                 isConnected = true
                 connectionError = nil
                 
@@ -168,6 +169,7 @@ class WebSocketManager: ObservableObject {
                 break
                 
             case "sensor_data":
+                print("📡 WebSocket: Получены данные датчика")
                 handleSensorDataUpdate(json)
                 
             case "watering_event_created":
@@ -193,6 +195,8 @@ class WebSocketManager: ObservableObject {
             return
         }
         
+        print("📡 WebSocket: Обработка данных датчика - теплица: \(greenhouseId), temp: \(temperature)°C, hum: \(humidity)%")
+        
         let sensorReading = SensorReadingOut(
             id: "",
             sensor_id: sensorId,
@@ -203,7 +207,12 @@ class WebSocketManager: ObservableObject {
         )
         
         // Вызываем callback
-        onSensorDataUpdate?(greenhouseId, sensorReading)
+        if let callback = onSensorDataUpdate {
+            print("📡 WebSocket: Вызов callback для обновления данных")
+            callback(greenhouseId, sensorReading)
+        } else {
+            print("⚠️ WebSocket: Callback не установлен!")
+        }
     }
     
     private func startHeartbeat() {

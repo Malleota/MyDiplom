@@ -29,6 +29,7 @@ struct GreenhouseListView: View {
     @State private var isDeleting = false
     @State private var showDeleteErrorAlert = false
     @State private var deleteErrorMessage: String? = nil
+    @State private var navigateToGreenhouseId: String? = nil
     
     private var shouldShowCreateButton: Bool {
         AuthManager.shared.currentUser?.role != "worker"
@@ -61,9 +62,13 @@ struct GreenhouseListView: View {
                     ScrollView {
                         LazyVStack(spacing: 16) {
                             ForEach(viewModel.greenhouses, id: \.id) { greenhouse in
-                                NavigationLink(destination: GreenhouseDetailView(greenhouseId: greenhouse.id)
-                                    .environmentObject(bleManager)
-                                    .environmentObject(sensorDataManager)) {
+                                NavigationLink(
+                                    destination: GreenhouseDetailView(greenhouseId: greenhouse.id)
+                                        .environmentObject(bleManager)
+                                        .environmentObject(sensorDataManager),
+                                    tag: greenhouse.id,
+                                    selection: $navigateToGreenhouseId
+                                ) {
                                     GreenhouseCardView(
                                         greenhouse: greenhouse,
                                         sensorData: viewModel.getSensorDataForGreenhouse(greenhouse, bleManager: bleManager, sensorDataManager: sensorDataManager),
@@ -174,6 +179,20 @@ struct GreenhouseListView: View {
                 // Обновляем UI при обновлении данных через глобальный менеджер
                 // Данные уже обновлены в sensorDataManager, просто обновляем view
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToGreenhouse"))) { notification in
+                // Обрабатываем навигацию к теплице из уведомления (старое уведомление для совместимости)
+                if let userInfo = notification.userInfo,
+                   let greenhouseId = userInfo["greenhouse_id"] as? String {
+                    handleNavigationToGreenhouse(greenhouseId: greenhouseId)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToGreenhouseDetail"))) { notification in
+                // Обрабатываем навигацию к теплице из уведомления (новое уведомление)
+                if let userInfo = notification.userInfo,
+                   let greenhouseId = userInfo["greenhouse_id"] as? String {
+                    handleNavigationToGreenhouse(greenhouseId: greenhouseId)
+                }
+            }
             .onAppear {
                 // Регистрируем экран, если есть теплицы с sensor_id
                 checkAndRegisterScreen()
@@ -212,6 +231,42 @@ struct GreenhouseListView: View {
     }
     
     @State private var isScreenRegistered = false
+    
+    /// Обрабатывает навигацию к конкретной теплице
+    private func handleNavigationToGreenhouse(greenhouseId: String) {
+        print("📱 GreenhouseListView: Обработка навигации к теплице \(greenhouseId)")
+        
+        // Проверяем, есть ли такая теплица в списке
+        if viewModel.greenhouses.contains(where: { $0.id == greenhouseId }) {
+            print("✅ GreenhouseListView: Теплица найдена в списке, выполняем навигацию")
+            // Небольшая задержка для гарантии, что NavigationView готов
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 секунды
+                navigateToGreenhouseId = greenhouseId
+                print("✅ GreenhouseListView: Навигация установлена для теплицы \(greenhouseId)")
+            }
+        } else {
+            print("⚠️ GreenhouseListView: Теплица не найдена в списке, загружаем список заново")
+            // Если теплицы еще нет в списке, загружаем список заново
+            Task {
+                await viewModel.loadGreenhouses(bleManager: bleManager, forceReload: true)
+                // После загрузки пытаемся снова
+                if viewModel.greenhouses.contains(where: { $0.id == greenhouseId }) {
+                    print("✅ GreenhouseListView: Теплица найдена после перезагрузки, выполняем навигацию")
+                    await MainActor.run {
+                        // Небольшая задержка для гарантии, что NavigationView готов
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 секунды
+                            navigateToGreenhouseId = greenhouseId
+                            print("✅ GreenhouseListView: Навигация установлена для теплицы \(greenhouseId) после перезагрузки")
+                        }
+                    }
+                } else {
+                    print("❌ GreenhouseListView: Теплица не найдена даже после перезагрузки")
+                }
+            }
+        }
+    }
     
     private func checkAndRegisterScreen() {
         // Регистрируем экран, если есть теплицы с sensor_id
@@ -3652,11 +3707,17 @@ struct GreenhouseDetailView: View {
     }
     
     private func updateSensorDataFromManager() {
-        guard let greenhouse = greenhouse else { return }
+        guard let greenhouse = greenhouse else {
+            print("⚠️ GreenhouseDetailView: Нет данных теплицы для обновления данных датчика")
+            return
+        }
         
         // Получаем данные из глобального менеджера
         if let managerData = sensorDataManager.getSensorData(greenhouseId: greenhouse.id) {
+            print("📡 GreenhouseDetailView: Обновлены данные датчика из менеджера - temp=\(managerData.temperature)°C, hum=\(managerData.humidity)%")
             sensorData = managerData
+        } else {
+            print("⚠️ GreenhouseDetailView: Нет данных датчика в менеджере для теплицы \(greenhouse.name)")
         }
     }
     

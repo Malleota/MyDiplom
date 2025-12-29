@@ -292,7 +292,10 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             }
             
             // Отправляем данные на сервер в фоновом режиме
+            // Это работает на всех экранах, включая главный экран
             let bleIdentifier = peripheral.identifier.uuidString
+            print("📤 BLEManager: Получены данные с датчика \(bleIdentifier) - temp=\(sensor.temperature)°C, hum=\(sensor.humidity)%, отправка на сервер...")
+            
             Task {
                 do {
                     try await APIService.shared.sendSensorData(
@@ -300,6 +303,8 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                         temperature: sensor.temperature,
                         humidity: sensor.humidity
                     )
+                    print("✅ BLEManager: Данные успешно отправлены на сервер для датчика \(bleIdentifier)")
+                    
                     // Отправляем уведомление об успешной отправке данных
                     // Это позволит запросить обновленные данные с сервера
                     DispatchQueue.main.async {
@@ -311,7 +316,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                     }
                 } catch {
                     // Ошибка уже обработана в sendSensorData, просто логируем
-                    print("⚠️ Не удалось отправить данные на сервер: \(error.localizedDescription)")
+                    print("❌ BLEManager: Не удалось отправить данные на сервер для датчика \(bleIdentifier): \(error.localizedDescription)")
                 }
             }
         }

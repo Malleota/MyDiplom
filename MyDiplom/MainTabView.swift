@@ -233,6 +233,7 @@ struct MainTabView: View {
     @EnvironmentObject var wateringDataManager: WateringDataManager
     @EnvironmentObject var fertilizingDataManager: FertilizingDataManager
     @State private var selectedTab = 0
+    @State private var navigateToGreenhouseId: String? = nil
     
     var isAdmin: Bool {
         authManager.currentUser?.role == "admin"
@@ -263,7 +264,7 @@ struct MainTabView: View {
                 .tag(1)
             
             // Теплицы
-            GreenhousesView()
+            GreenhouseListView()
                 .environmentObject(bleManager)
                 .environmentObject(sensorDataManager)
                 .environmentObject(wateringDataManager)
@@ -307,6 +308,29 @@ struct MainTabView: View {
         .task {
             if authManager.currentUser == nil {
                 await authManager.loadUserData()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToGreenhouse"))) { notification in
+            // Обрабатываем навигацию к теплице из уведомления
+            if let userInfo = notification.userInfo,
+               let greenhouseId = userInfo["greenhouse_id"] as? String {
+                print("📱 MainTabView: Навигация к теплице \(greenhouseId) из уведомления")
+                
+                // Переключаемся на вкладку "Теплицы"
+                selectedTab = 2
+                
+                // Даем время TabView переключиться, затем устанавливаем навигацию
+                Task { @MainActor in
+                    // Небольшая задержка для переключения таба
+                    try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 секунды
+                    
+                    // Отправляем уведомление в GreenhouseListView для навигации
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("NavigateToGreenhouseDetail"),
+                        object: nil,
+                        userInfo: ["greenhouse_id": greenhouseId]
+                    )
+                }
             }
         }
     }
