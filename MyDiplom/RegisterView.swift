@@ -23,6 +23,7 @@ struct RegisterView: View {
     @State private var isLoading: Bool = false
     @State private var showExitAlert: Bool = false
     @State private var hasAttemptedSubmit: Bool = false
+    @State private var isPasswordFocused: Bool = false
     
     private var hasData: Bool {
         !name.isEmpty || !email.isEmpty || !password.isEmpty
@@ -121,9 +122,12 @@ struct RegisterView: View {
                                     text: $password,
                                     kind: .secure,
                                     state: passwordError == nil ? .normal : .error,
-                                    textContentType: .newPassword,
+                                    textContentType: nil,
                                     autocapitalization: .never,
-                                    submitLabel: .done
+                                    submitLabel: .done,
+                                    onFocusChange: { focused in
+                                        isPasswordFocused = focused
+                                    }
                                 )
                                 .onChange(of: password) { newValue in
                                     if hasAttemptedSubmit {
@@ -132,6 +136,13 @@ struct RegisterView: View {
                                         passwordError = nil
                                     }
                                     generalError = nil
+                                }
+                                
+                                // Требования к паролю: показывать только когда поле в фокусе
+                                if isPasswordFocused {
+                                    Text("Минимум 6 символов: строчная и заглавная латинские буквы и цифры.")
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
                                 }
                                 
                                 if let error = passwordError {

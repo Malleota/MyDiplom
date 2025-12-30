@@ -104,7 +104,7 @@ struct SystemInputField: View {
     private var inputField: some View {
         if kind == .secure && !isSecureRevealed {
             SecureField(placeholder, text: $text)
-                .textContentType(textContentType ?? .password)
+                .textContentType(textContentType)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
                 .focused($isFocused)
