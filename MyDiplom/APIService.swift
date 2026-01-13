@@ -971,6 +971,53 @@ class APIService {
         }
     }
     
+    /// Получить список доступных изображений для типов растений
+    func getPlantTypeImages() async throws -> [GreenhouseImageOut] {
+        // Этот endpoint не требует авторизации согласно API
+        let url = URL(string: "\(baseURL)/plant-type-images")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        // Опционально добавляем токен, если он есть
+        if let token = AuthManager.shared.accessToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        
+        print("🌿 getPlantTypeImages: Запрос изображений с URL: \(url.absoluteString)")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ getPlantTypeImages: Неверный ответ сервера")
+            throw APIError(detail: "Неверный ответ сервера")
+        }
+        
+        print("🌿 getPlantTypeImages: Статус ответа = \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let decoder = JSONDecoder()
+            let images = try decoder.decode([GreenhouseImageOut].self, from: data)
+            print("✅ getPlantTypeImages: Загружено \(images.count) изображений")
+            for image in images {
+                print("  - \(image.name): \(image.image_url)")
+            }
+            return images
+        } else if httpResponse.statusCode == 401 {
+            print("❌ getPlantTypeImages: Не авторизован")
+            throw APIError(detail: "Не авторизован")
+        } else {
+            let decoder = JSONDecoder()
+            if let error = try? decoder.decode(APIError.self, from: data) {
+                print("❌ getPlantTypeImages: Ошибка \(httpResponse.statusCode) - \(error.detail)")
+                throw APIError(detail: error.detail)
+            }
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("❌ getPlantTypeImages: Ошибка сервера, ответ: \(responseString)")
+            }
+            throw APIError(detail: "Ошибка сервера")
+        }
+    }
+    
     /// Получить список всех пользователей (доступно только для админа)
     func getAllUsers() async throws -> [UserOut] {
         guard let token = AuthManager.shared.accessToken else {

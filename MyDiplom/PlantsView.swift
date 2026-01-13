@@ -954,7 +954,7 @@ struct CreatePlantView: View {
         defer { isLoadingImages = false }
         
         do {
-            availableImages = try await APIService.shared.getGreenhouseImages()
+            availableImages = try await APIService.shared.getPlantTypeImages()
             
             // Предвыбираем первую картинку, если нет загруженного изображения
             if !availableImages.isEmpty && selectedImageId == nil && selectedImage == nil {
@@ -1604,7 +1604,7 @@ class EditPlantViewModel: ObservableObject {
         defer { isLoadingImages = false }
         
         do {
-            availableImages = try await APIService.shared.getGreenhouseImages()
+            availableImages = try await APIService.shared.getPlantTypeImages()
             
             // Находим и выбираем текущее изображение растения
             if let imageUrl = plantType.image_url {

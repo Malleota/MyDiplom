@@ -204,7 +204,9 @@ struct NotificationRowView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         formatter.locale = Locale(identifier: "ru_RU")
-        return formatter.localizedString(for: date, relativeTo: Date())
+        let formatted = formatter.localizedString(for: date, relativeTo: Date())
+        // Убираем минус из начала строки, если он есть
+        return formatted.hasPrefix("-") ? String(formatted.dropFirst()) : formatted
     }
 }
 
